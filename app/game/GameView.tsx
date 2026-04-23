@@ -108,6 +108,11 @@ export function GameView() {
     setMultiplier(1);
     setRemaining(mode.durationSec);
     setScreen({ kind: "loading" });
+    // Clear the previous session — each run must mint with its own token,
+    // otherwise a second mint attempts to re-consume the used token
+    // and the API correctly rejects it with "session already used".
+    setSessionToken(null);
+    setSessionError(null);
     setRunKey((k) => k + 1);
   };
 
