@@ -15,17 +15,20 @@ export const GAME_EVENTS = {
   NUKE: "nuke",
   /** Sweep fuel: 0..1. Fires ~6Hz while active or recharging. */
   SWEEP_FUEL: "sweepFuel",
+  /** Player committed pending → banked. Game continues. */
+  BANK: "bank",
 } as const;
 
 export type GameEventPayload = {
-  score: { score: number };
+  score: { score: number; banked: number; pending: number };
   combo: { combo: number; multiplier: number };
   stackHeight: { fraction: number };
   timer: { remainingSec: number };
-  gameOver: { score: number };
-  gameWin: { score: number };
+  gameOver: { score: number; lostPending: number };
+  gameWin: { score: number; lostPending: number };
   ready: Record<string, never>;
   streak: { streak: number; heatLevel: 0 | 1 | 2 | 3 | 4 | 5 };
   nuke: { charged: boolean };
   sweepFuel: { fuel: number; available: boolean };
+  bank: { banked: number; justBanked: number };
 };

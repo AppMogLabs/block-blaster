@@ -65,7 +65,10 @@ export class GameScene extends Phaser.Scene {
   private numColumns = 6;
   private columnWidth = 0;
 
-  private score = 0;
+  /** Locked points — survives death, committed via bank(). */
+  private banked = 0;
+  /** At-risk points from the current streak. Lost on death, banked on win. */
+  private pending = 0;
   private streak = 0; // consecutive hits without a miss
   private comboTimer = 0; // time since last hit (ms)
   private remainingMs = 0;
@@ -418,7 +421,8 @@ export class GameScene extends Phaser.Scene {
     this.sfx(SFX.HIT, { volume: b.isRare ? 0.75 : 0.5, rate: pitchBoost });
 
     const multiplier = this.streak >= 10 ? 3 : this.streak >= 5 ? 2 : 1;
-    this.score += base * multiplier;
+    // Points land in the "pending" pot — at risk until the player banks.
+    this.pending += base * multiplier;
 
     // Heat milestones
     if (HEAT_THRESHOLDS.includes(this.streak)) {
@@ -597,7 +601,11 @@ export class GameScene extends Phaser.Scene {
     if (!this.scoreDirty && !this.comboDirty) return;
     if (this.time.now - this.lastHudEmit < 50) return;
     if (this.scoreDirty) {
-      this.cfg.bus.emit(GAME_EVENTS.SCORE, { score: this.score });
+      this.cfg.bus.emit(GAME_EVENTS.SCORE, {
+        score: this.banked + this.pending,
+        banked: this.banked,
+        pending: this.pending,
+      });
       this.scoreDirty = false;
     }
     if (this.comboDirty) {
@@ -957,23 +965,90 @@ export class GameScene extends Phaser.Scene {
     this.state = "over";
     this.stopSweep();
     this.stopMusic();
+
+    // Timer-up (win) auto-banks pending so the player doesn't lose a streak
+    // they never had the chance to bank manually. Death (over) forfeits
+    // pending — that's the risk/reward core of the game loop.
+    const lostPending = kind === "over" ? this.pending : 0;
+    if (kind === "win" && this.pending > 0) {
+      this.banked += this.pending;
+    }
+    this.pending = 0;
+
     // Force-flush any pending HUD updates so the overlay reads the final
     // score/combo, not a 50ms-stale value.
-    if (this.scoreDirty) {
-      this.cfg.bus.emit(GAME_EVENTS.SCORE, { score: this.score });
-      this.scoreDirty = false;
-    }
+    this.cfg.bus.emit(GAME_EVENTS.SCORE, {
+      score: this.banked,
+      banked: this.banked,
+      pending: 0,
+    });
+    this.scoreDirty = false;
     if (this.comboDirty) {
       this.emitCombo();
       this.comboDirty = false;
     }
+
     this.sfx(kind === "win" ? SFX.WIN : SFX.DIE, { volume: 0.6 });
     const evt = kind === "win" ? GAME_EVENTS.GAME_WIN : GAME_EVENTS.GAME_OVER;
-    this.cfg.bus.emit(evt, { score: this.score });
+    this.cfg.bus.emit(evt, { score: this.banked, lostPending });
   }
 
-  /** Externally-triggered early bank. */
+  /**
+   * Commit pending points to banked. Resets streak — player has to rebuild
+   * from 1x to earn the next 3x window. No-op if pending is zero. Does NOT
+   * end the game.
+   */
+  public bank() {
+    if (this.state !== "running") return;
+    if (this.pending <= 0) return;
+
+    const justBanked = this.pending;
+    this.banked += this.pending;
+    this.pending = 0;
+    this.streak = 0;
+
+    this.sfx(SFX.STREAK, { volume: 0.55, rate: 1.25 });
+
+    // Flash + tiny camera bump so the commit feels satisfying.
+    const flash = this.add
+      .rectangle(
+        this.scale.width / 2,
+        this.scale.height / 2,
+        this.scale.width,
+        this.scale.height,
+        0x6dd0a9,
+        0.25
+      )
+      .setDepth(450);
+    this.tweens.add({
+      targets: flash,
+      alpha: 0,
+      duration: 260,
+      onComplete: () => flash.destroy(),
+    });
+    this.cameras.main.shake(120, 0.004);
+
+    // Banking collapses heat — the streak is gone.
+    this.applyHeat();
+    this.emitCombo();
+
+    this.cfg.bus.emit(GAME_EVENTS.BANK, {
+      banked: this.banked,
+      justBanked,
+    });
+    this.cfg.bus.emit(GAME_EVENTS.SCORE, {
+      score: this.banked,
+      banked: this.banked,
+      pending: 0,
+    });
+  }
+
+  /**
+   * Kept as an alias so external handles that call `bankEarly()` still work.
+   * The semantics changed: it no longer ends the game — it banks pending
+   * and returns the player to active play.
+   */
   public bankEarly() {
-    this.endGame("win");
+    this.bank();
   }
 }

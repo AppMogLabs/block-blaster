@@ -5,6 +5,8 @@ import type Phaser from "phaser";
 import { GAME_EVENTS } from "@/game/config/events";
 
 export type GameCanvasHandle = {
+  bank: () => void;
+  /** Legacy alias — older callers may still reference this name. */
   bankEarly: () => void;
   triggerNuke: () => void;
   destroy: () => void;
@@ -15,15 +17,16 @@ export type GameCanvasProps = {
   blocksPerSecond: number;
   durationSec: number;
   startingBlockNumber?: number;
-  onScore: (score: number) => void;
+  onScore: (score: number, banked: number, pending: number) => void;
   onCombo: (combo: number, multiplier: number) => void;
   onTimer: (remainingSec: number) => void;
-  onGameWin: (score: number) => void;
-  onGameOver: (score: number) => void;
+  onGameWin: (score: number, lostPending: number) => void;
+  onGameOver: (score: number, lostPending: number) => void;
   onReady?: () => void;
   onStreak?: (streak: number, heatLevel: number) => void;
   onNuke?: (charged: boolean) => void;
   onSweepFuel?: (fuel: number, available: boolean) => void;
+  onBank?: (banked: number, justBanked: number) => void;
   registerHandle?: (h: GameCanvasHandle | null) => void;
 };
 
@@ -46,15 +49,21 @@ export function GameCanvas(props: GameCanvasProps) {
       if (cancelled || !hostRef.current) return;
 
       const bus = new Phaser.Events.EventEmitter();
-      bus.on(GAME_EVENTS.SCORE, ({ score }: { score: number }) => cbRef.current.onScore(score));
+      bus.on(GAME_EVENTS.SCORE, (p: { score: number; banked: number; pending: number }) =>
+        cbRef.current.onScore(p.score, p.banked, p.pending)
+      );
       bus.on(GAME_EVENTS.COMBO, (p: { combo: number; multiplier: number }) =>
         cbRef.current.onCombo(p.combo, p.multiplier)
       );
       bus.on(GAME_EVENTS.TIMER, ({ remainingSec }: { remainingSec: number }) =>
         cbRef.current.onTimer(remainingSec)
       );
-      bus.on(GAME_EVENTS.GAME_WIN, ({ score }: { score: number }) => cbRef.current.onGameWin(score));
-      bus.on(GAME_EVENTS.GAME_OVER, ({ score }: { score: number }) => cbRef.current.onGameOver(score));
+      bus.on(GAME_EVENTS.GAME_WIN, (p: { score: number; lostPending: number }) =>
+        cbRef.current.onGameWin(p.score, p.lostPending)
+      );
+      bus.on(GAME_EVENTS.GAME_OVER, (p: { score: number; lostPending: number }) =>
+        cbRef.current.onGameOver(p.score, p.lostPending)
+      );
       bus.on(GAME_EVENTS.READY, () => cbRef.current.onReady?.());
       bus.on(GAME_EVENTS.STREAK, (p: { streak: number; heatLevel: number }) =>
         cbRef.current.onStreak?.(p.streak, p.heatLevel)
@@ -64,6 +73,9 @@ export function GameCanvas(props: GameCanvasProps) {
       );
       bus.on(GAME_EVENTS.SWEEP_FUEL, (p: { fuel: number; available: boolean }) =>
         cbRef.current.onSweepFuel?.(p.fuel, p.available)
+      );
+      bus.on(GAME_EVENTS.BANK, (p: { banked: number; justBanked: number }) =>
+        cbRef.current.onBank?.(p.banked, p.justBanked)
       );
 
       const width = hostRef.current.clientWidth;
@@ -106,9 +118,13 @@ export function GameCanvas(props: GameCanvasProps) {
       });
 
       cbRef.current.registerHandle?.({
+        bank: () => {
+          const scene = sceneRef.current as unknown as { bank?: () => void } | null;
+          scene?.bank?.();
+        },
         bankEarly: () => {
-          const scene = sceneRef.current as unknown as { bankEarly?: () => void } | null;
-          scene?.bankEarly?.();
+          const scene = sceneRef.current as unknown as { bank?: () => void } | null;
+          scene?.bank?.();
         },
         triggerNuke: () => {
           const scene = sceneRef.current as unknown as { triggerNuke?: () => void } | null;

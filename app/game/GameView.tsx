@@ -21,8 +21,8 @@ const GameCanvas = dynamic(
 type ScreenState =
   | { kind: "loading" }
   | { kind: "playing" }
-  | { kind: "win"; score: number }
-  | { kind: "over"; score: number };
+  | { kind: "win"; score: number; lostPending: number }
+  | { kind: "over"; score: number; lostPending: number };
 
 export function GameView() {
   const router = useRouter();
@@ -33,7 +33,10 @@ export function GameView() {
   const { blockNumber } = useMegaEth();
 
   const [screen, setScreen] = useState<ScreenState>({ kind: "loading" });
-  const [score, setScore] = useState(0);
+  const [score, setScore] = useState(0); // total = banked + pending, for any "overall" HUD
+  const [banked, setBanked] = useState(0);
+  const [pending, setPending] = useState(0);
+  const [bankFlash, setBankFlash] = useState(0); // ticks each successful bank
   const [combo, setCombo] = useState(0);
   const [peakCombo, setPeakCombo] = useState(0);
   const [multiplier, setMultiplier] = useState(1);
@@ -96,15 +99,33 @@ export function GameView() {
   // Once Phaser is mounted + ready, switch to playing. Until then show loading.
   const onReady = useCallback(() => setScreen({ kind: "playing" }), []);
 
-  const onScore = useCallback((s: number) => setScore(s), []);
+  const onScore = useCallback((s: number, b: number, p: number) => {
+    setScore(s);
+    setBanked(b);
+    setPending(p);
+  }, []);
   const onCombo = useCallback((c: number, m: number) => {
     setCombo(c);
     setMultiplier(m);
     setPeakCombo((prev) => (c > prev ? c : prev));
   }, []);
   const onTimer = useCallback((r: number) => setRemaining(r), []);
-  const onGameWin = useCallback((s: number) => setScreen({ kind: "win", score: s }), []);
-  const onGameOver = useCallback((s: number) => setScreen({ kind: "over", score: s }), []);
+  const onGameWin = useCallback(
+    (s: number, lostPending: number) => setScreen({ kind: "win", score: s, lostPending }),
+    []
+  );
+  const onGameOver = useCallback(
+    (s: number, lostPending: number) => setScreen({ kind: "over", score: s, lostPending }),
+    []
+  );
+  const onBank = useCallback((b: number, _justBanked: number) => {
+    setBanked(b);
+    setPending(0);
+    setBankFlash((n) => n + 1);
+  }, []);
+  const onBankClick = useCallback(() => {
+    handleRef.current?.bank();
+  }, []);
   const onStreak = useCallback((s: number, h: number) => {
     setStreak(s);
     setHeatLevel(h);
@@ -120,6 +141,8 @@ export function GameView() {
 
   const retry = () => {
     setScore(0);
+    setBanked(0);
+    setPending(0);
     setCombo(0);
     setPeakCombo(0);
     setMultiplier(1);
@@ -188,9 +211,16 @@ export function GameView() {
             <span className="text-moon-white/50 uppercase text-[10px]">streak</span>{" "}
             <span className="tabular-nums font-bold">{streak}</span>
           </div>
-          <div className="mono">
-            <span className="text-moon-white/50 uppercase text-[10px]">score</span>{" "}
-            <span className="tabular-nums text-moon-white font-bold">{score}</span>
+          <div
+            key={`bank-${bankFlash}`}
+            className="mono transition-transform animate-[milestonePop_0.45s_ease-out]"
+          >
+            <span className="text-moon-white/50 uppercase text-[10px]">banked</span>{" "}
+            <span className="tabular-nums text-mint font-bold">{banked}</span>
+          </div>
+          <div className={`mono ${pending > 0 ? "text-pink" : "text-moon-white/30"}`}>
+            <span className="text-moon-white/50 uppercase text-[10px]">pending</span>{" "}
+            <span className="tabular-nums font-bold">{pending}</span>
           </div>
         </div>
       </div>
@@ -216,6 +246,7 @@ export function GameView() {
               onStreak={onStreak}
               onNuke={onNuke}
               onSweepFuel={onSweepFuel}
+              onBank={onBank}
               registerHandle={(h) => (handleRef.current = h)}
             />
           </GameErrorBoundary>
@@ -224,12 +255,7 @@ export function GameView() {
         {screen.kind === "loading" && <LoadingOverlay />}
         {screen.kind === "playing" && (
           <>
-            <button
-              onClick={() => handleRef.current?.bankEarly()}
-              className="absolute bottom-10 left-1/2 -translate-x-1/2 btn-secondary text-xs"
-            >
-              bank early
-            </button>
+            <BankButton pending={pending} onBank={onBankClick} />
             {sweepAvailable && <SweepFuelBar fuel={sweepFuel} />}
             <NukeButton charged={nukeCharged} onActivate={onNukeClick} />
           </>
@@ -250,13 +276,43 @@ export function GameView() {
         {screen.kind === "over" && (
           <DiedOverlay
             score={screen.score}
+            lostPending={screen.lostPending}
             modeId={modeId}
             peakCombo={peakCombo}
+            token={sessionToken}
+            sessionError={sessionError}
+            walletAddress={walletAddress}
+            isAuthenticated={isAuthenticated}
+            onSignIn={login}
             onRetry={retry}
           />
         )}
       </div>
     </main>
+  );
+}
+
+function BankButton({
+  pending,
+  onBank,
+}: {
+  pending: number;
+  onBank: () => void;
+}) {
+  const hasPending = pending > 0;
+  return (
+    <button
+      onClick={onBank}
+      disabled={!hasPending}
+      aria-label={hasPending ? `Bank ${pending} points` : "Nothing to bank yet"}
+      className={`absolute bottom-8 left-1/2 -translate-x-1/2 mono uppercase px-5 py-2 rounded-md text-xs tracking-widest transition-all ${
+        hasPending
+          ? "bg-mint text-night-sky font-bold shadow-[0_0_22px_rgba(144,215,159,0.55)] cursor-pointer hover:brightness-110"
+          : "bg-moon-white/5 text-moon-white/30 cursor-not-allowed"
+      }`}
+    >
+      {hasPending ? `BANK +${pending}` : "BANK"}
+    </button>
   );
 }
 
@@ -454,32 +510,125 @@ function SurvivedOverlay({
 
 function DiedOverlay({
   score,
+  lostPending,
   modeId,
   peakCombo,
+  token,
+  sessionError,
+  walletAddress,
+  isAuthenticated,
+  onSignIn,
   onRetry,
 }: {
   score: number;
+  lostPending: number;
   modeId: number;
   peakCombo: number;
+  token: string | null;
+  sessionError: string | null;
+  walletAddress: string | null;
+  isAuthenticated: boolean;
+  onSignIn: () => void;
   onRetry: () => void;
 }) {
   const phrase = pickDiePhrase({ score, combo: peakCombo, modeId });
+  const [minting, setMinting] = useState(false);
+  const [txHash, setTxHash] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  const canCommit = Boolean(walletAddress && token && score > 0);
+  const signedInButNoSession = Boolean(walletAddress && !token);
+  const isGuest = !isAuthenticated;
+
+  const commit = async () => {
+    if (!walletAddress || !token || score <= 0) return;
+    setMinting(true);
+    setError(null);
+    try {
+      const res = await fetch("/api/mint", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ token, score, walletAddress, modeId }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error ?? "mint failed");
+      setTxHash(data.txHash);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "mint error");
+    } finally {
+      setMinting(false);
+    }
+  };
+
   const shareUrl = `https://twitter.com/intent/tweet?text=${encodeURIComponent(
-    `${phrase.title} I hit ${score} in Block Blaster. → https://block-blaster.app`
+    `${phrase.title} I banked ${score} in Block Blaster. → https://block-blaster.app`
   )}`;
+
   return (
     <div className="absolute inset-0 flex items-center justify-center bg-night-sky/85 backdrop-blur-sm p-6">
       <div className="glass rounded-2xl p-8 max-w-md w-full text-center border-rose/30">
         <div className="mono text-xs uppercase tracking-widest text-rose">buried</div>
         <div className="text-3xl font-bold mt-2">{phrase.title}</div>
         <div className="text-sm text-moon-white/60 mt-2">{phrase.sub}</div>
-        <div className="mono text-5xl text-moon-white/40 tabular-nums mt-6">{score}</div>
-        <div className="text-xs text-moon-white/40 mt-1">unminted</div>
-        <div className="mt-6 flex gap-2 justify-center">
-          <button onClick={onRetry} className="btn-primary">
+
+        <div className="mono text-xs uppercase tracking-widest text-mint mt-6">banked</div>
+        <div className="mono text-6xl tabular-nums font-bold mt-1 text-mint">{score}</div>
+
+        {lostPending > 0 && (
+          <div className="mt-3 text-xs text-rose/80 mono">
+            lost {lostPending} pending — next time, bank sooner
+          </div>
+        )}
+
+        {score > 0 ? (
+          txHash ? (
+            <div className="mt-6 space-y-3">
+              <div className="mono text-xs text-mint">✓ minted onchain</div>
+              <a
+                href={`${publicConfig.megaethExplorer}/tx/${txHash}`}
+                target="_blank"
+                rel="noreferrer"
+                className="mono text-xs text-sky underline break-all block"
+              >
+                {txHash}
+              </a>
+            </div>
+          ) : isGuest ? (
+            <div className="mt-6 space-y-3">
+              <div className="text-xs text-moon-white/60">
+                Sign in with X to keep your banked <span className="mono">$BLOK</span>.
+              </div>
+              <button onClick={onSignIn} className="btn-primary w-full">
+                Sign in with X
+              </button>
+            </div>
+          ) : signedInButNoSession ? (
+            <div className="mt-6 text-xs text-rose/80">
+              {sessionError ?? "No session token for this run — try another round."}
+            </div>
+          ) : (
+            <>
+              <button
+                onClick={commit}
+                disabled={minting || !canCommit}
+                className="btn-primary mt-6 w-full disabled:opacity-50"
+              >
+                {minting ? "committing…" : "Commit to chain"}
+              </button>
+              {error && <div className="mono text-xs text-rose mt-2">{error}</div>}
+            </>
+          )
+        ) : (
+          <div className="mt-6 text-xs text-moon-white/50">
+            Nothing banked this run.
+          </div>
+        )}
+
+        <div className="mt-4 flex gap-2 justify-center">
+          <button onClick={onRetry} className="btn-secondary text-xs">
             Try again
           </button>
-          <a href={shareUrl} target="_blank" rel="noreferrer" className="btn-secondary">
+          <a href={shareUrl} target="_blank" rel="noreferrer" className="btn-secondary text-xs">
             Share on X
           </a>
         </div>
