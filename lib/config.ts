@@ -46,6 +46,8 @@ export const publicConfig = {
   blokAddress: process.env.NEXT_PUBLIC_BLOK_CONTRACT_ADDRESS ?? "",
   leaderboardAddress:
     process.env.NEXT_PUBLIC_LEADERBOARD_CONTRACT_ADDRESS ?? "",
+  gameRewardsAddress:
+    process.env.NEXT_PUBLIC_GAMEREWARDS_CONTRACT_ADDRESS ?? "",
 };
 
 /**

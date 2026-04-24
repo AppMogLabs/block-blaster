@@ -11,6 +11,8 @@ import { publicConfig } from "@/lib/config";
 import { MuteToggle } from "@/components/ui/MuteToggle";
 import { pickWinPhrase, pickDiePhrase } from "@/lib/endGameMessaging";
 import { GameErrorBoundary } from "@/components/game/GameErrorBoundary";
+import { useBlok } from "@/hooks/useBlok";
+import { useToast } from "@/components/ui/Toast";
 
 type MintArgs = {
   token: string;
@@ -60,6 +62,8 @@ export function GameView() {
   const mode = useMemo(() => getDifficulty(modeId), [modeId]);
   const { walletAddress, login, isAuthenticated } = useAuth();
   const { blockNumber } = useMegaEth();
+  const blok = useBlok(walletAddress);
+  const toast = useToast();
 
   const [screen, setScreen] = useState<ScreenState>({ kind: "loading" });
   const [score, setScore] = useState(0); // total = banked + pending, for any "overall" HUD
@@ -140,19 +144,77 @@ export function GameView() {
     setPeakCombo((prev) => (c > prev ? c : prev));
   }, []);
   const onTimer = useCallback((r: number) => setRemaining(r), []);
+  const postGameEnd = useCallback(
+    async (outcome: "win" | "death") => {
+      if (!walletAddress || !sessionToken) return;
+      try {
+        await fetch("/api/game-end", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            token: sessionToken,
+            walletAddress,
+            modeId,
+            outcome,
+          }),
+        });
+        // Refresh balance one more time — any wager settled by bank during
+        // the run might have changed it, and game-end itself may have
+        // burned an active wager.
+        await blok.refresh();
+      } catch {
+        // Non-fatal — game is over, the player has already seen their score.
+      }
+    },
+    [walletAddress, sessionToken, modeId, blok]
+  );
   const onGameWin = useCallback(
-    (s: number, lostPending: number) => setScreen({ kind: "win", score: s, lostPending }),
-    []
+    (s: number, lostPending: number) => {
+      setScreen({ kind: "win", score: s, lostPending });
+      void postGameEnd("win");
+    },
+    [postGameEnd]
   );
   const onGameOver = useCallback(
-    (s: number, lostPending: number) => setScreen({ kind: "over", score: s, lostPending }),
-    []
+    (s: number, lostPending: number) => {
+      setScreen({ kind: "over", score: s, lostPending });
+      void postGameEnd("death");
+    },
+    [postGameEnd]
   );
-  const onBank = useCallback((b: number, _justBanked: number) => {
-    setBanked(b);
-    setPending(0);
-    setBankFlash((n) => n + 1);
-  }, []);
+  const onBank = useCallback(
+    async (b: number, justBanked: number) => {
+      // Local UI: banked bucket increments, pending resets.
+      setBanked(b);
+      setPending(0);
+      setBankFlash((n) => n + 1);
+      // Onchain: mint the just-banked amount to the player's wallet. Fire
+      // and forget — if the tx takes longer than the player's next action,
+      // we'll eventually see the updated balance via blok.refresh().
+      if (!walletAddress || !sessionToken || justBanked <= 0) return;
+      try {
+        const res = await fetch("/api/bank", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            token: sessionToken,
+            walletAddress,
+            modeId,
+            amount: justBanked,
+          }),
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error ?? "bank failed");
+        toast.push("success", `+${justBanked} $BLOK minted`);
+        // Refresh balance so HUD shows the new amount.
+        await blok.refresh();
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : "bank failed";
+        toast.push("error", `bank: ${msg}`);
+      }
+    },
+    [walletAddress, sessionToken, modeId, toast, blok]
+  );
   const onBankClick = useCallback(() => {
     handleRef.current?.bank();
   }, []);
@@ -245,13 +307,24 @@ export function GameView() {
             <span className="text-moon-white/50 uppercase text-[10px]">streak</span>{" "}
             <span className="tabular-nums font-bold">{streak}</span>
           </div>
-          <div
-            key={`bank-${bankFlash}`}
-            className="mono transition-transform animate-[milestonePop_0.45s_ease-out]"
-          >
-            <span className="text-moon-white/50 uppercase text-[10px]">banked</span>{" "}
-            <span className="tabular-nums text-mint font-bold">{banked}</span>
-          </div>
+          {isAuthenticated && blok.ready ? (
+            <div
+              key={`bal-${bankFlash}`}
+              className="mono transition-transform animate-[milestonePop_0.45s_ease-out]"
+              title="Your live $BLOK wallet balance"
+            >
+              <span className="text-moon-white/50 uppercase text-[10px]">$BLOK</span>{" "}
+              <span className="tabular-nums text-mint font-bold">{blok.balance}</span>
+            </div>
+          ) : (
+            <div
+              key={`bank-${bankFlash}`}
+              className="mono transition-transform animate-[milestonePop_0.45s_ease-out]"
+            >
+              <span className="text-moon-white/50 uppercase text-[10px]">banked</span>{" "}
+              <span className="tabular-nums text-mint font-bold">{banked}</span>
+            </div>
+          )}
           <div className={`mono ${pending > 0 ? "text-pink" : "text-moon-white/30"}`}>
             <span className="text-moon-white/50 uppercase text-[10px]">pending</span>{" "}
             <span className="tabular-nums font-bold">{pending}</span>
