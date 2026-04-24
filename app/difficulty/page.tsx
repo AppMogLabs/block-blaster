@@ -91,6 +91,13 @@ export default function DifficultyPage() {
       </header>
 
       <section className="flex-1 flex flex-col items-center justify-center px-6 py-10">
+        {blok.activeWagerAmount > 0 && (
+          <ActiveWagerBanner
+            amount={blok.activeWagerAmount}
+            modeId={blok.activeWagerMode}
+            onResume={() => router.push(`/game?mode=${blok.activeWagerMode}`)}
+          />
+        )}
         <h2 className="text-3xl sm:text-4xl font-bold mb-2">Pick your tempo</h2>
         <p className="text-moon-white/60 mb-10 mono text-sm">
           difficulty scales to MegaETH's actual block rate
@@ -156,6 +163,38 @@ export default function DifficultyPage() {
         />
       )}
     </main>
+  );
+}
+
+function ActiveWagerBanner({
+  amount,
+  modeId,
+  onResume,
+}: {
+  amount: number;
+  modeId: number;
+  onResume: () => void;
+}) {
+  const mode = DIFFICULTY_MODES.find((m) => m.id === modeId);
+  return (
+    <div className="mb-8 w-full max-w-3xl p-4 rounded-xl glass border border-pink/50 flex flex-col sm:flex-row items-center gap-4">
+      <div className="flex-1 text-center sm:text-left">
+        <div className="mono text-[10px] uppercase tracking-widest text-pink">
+          wager locked
+        </div>
+        <div className="mt-1 text-sm text-moon-white">
+          <span className="mono font-bold text-mint">{amount}</span>{" "}
+          <span className="mono">$BLOK</span> is wagered on{" "}
+          <span className="font-bold" style={{ color: mode?.accent }}>
+            {mode?.label ?? `mode ${modeId}`}
+          </span>
+          . Finish that run — bank to settle, die to burn.
+        </div>
+      </div>
+      <button onClick={onResume} className="btn-primary text-xs whitespace-nowrap">
+        Resume {mode?.label ?? "run"}
+      </button>
+    </div>
   );
 }
 
