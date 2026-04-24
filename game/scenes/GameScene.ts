@@ -114,7 +114,6 @@ export class GameScene extends Phaser.Scene {
   private sweepArmedForThisHold = true;
   private sweepGraphics?: Phaser.GameObjects.Graphics;
   private sweepHitAccumulator = 0;
-  private sweepSound?: Phaser.Sound.BaseSound;
   private lastSweepFuelEmit = 0;
 
   /**
@@ -398,8 +397,14 @@ export class GameScene extends Phaser.Scene {
   /**
    * Handles a block-hit regardless of source (projectile, sweep beam). Bombs
    * explode, everything else scores normally + ticks the streak.
+   *
+   * Defensive: the same block can be passed here twice within a tick if the
+   * sweep loop is iterating a snapshot and an AOE has already destroyed it.
+   * Skip gracefully.
    */
   private hitBlock(b: Block) {
+    if (!b.active) return;
+    if (!this.blocks.includes(b)) return;
     if (b.isBomb) {
       this.explodeAt(b.x, b.y, true, 0);
       return;
@@ -827,21 +832,17 @@ export class GameScene extends Phaser.Scene {
   private startSweep() {
     this.sweepActive = true;
     this.cameras.main.shake(180, 0.004, true);
-    if (this.cache.audio.has(SFX.SWEEP)) {
-      this.sweepSound = this.sound.add(SFX.SWEEP, { loop: true, volume: 0.25, rate: 1.4 });
-      this.sweepSound.play();
-    }
+    // One-shot whoosh on activation — looping a short .wav on mobile
+    // WebAudio triggers constant buffer-source scheduling and stalls frames.
+    // If a dedicated looping sweep sample lands later, switch back; until
+    // then a single play gives the sensory feedback without the frame cost.
+    this.sfx(SFX.SWEEP, { volume: 0.4, rate: 1.1 });
   }
 
   private stopSweep() {
     if (!this.sweepActive) return;
     this.sweepActive = false;
     this.sweepGraphics?.clear();
-    if (this.sweepSound) {
-      this.sweepSound.stop();
-      this.sweepSound.destroy();
-      this.sweepSound = undefined;
-    }
   }
 
   private drawSweep() {
@@ -871,18 +872,26 @@ export class GameScene extends Phaser.Scene {
   }
 
   private damageWithSweep(delta: number) {
-    // Damage cadence: ~every 80ms a block inside the beam line takes a hit.
+    // Damage cadence: ~every 100ms a block inside the beam line takes a hit.
     this.sweepHitAccumulator += delta;
-    if (this.sweepHitAccumulator < 80) return;
+    if (this.sweepHitAccumulator < 100) return;
     this.sweepHitAccumulator = 0;
 
     const ax = this.scale.width / 2;
     const ay = this.scale.height - 8;
     const bx = this.pointerWorldX;
     const by = this.pointerWorldY;
+    if (!Number.isFinite(bx) || !Number.isFinite(by)) return;
 
-    for (const block of [...this.blocks]) {
+    // Snapshot at the start of the tick. A single hit (especially a bomb)
+    // can destroy many other blocks via AOE — we must NOT re-hit anything
+    // that another block's side-effect already removed from the live
+    // `this.blocks` array, or we'll double-explode bombs and double-score
+    // normals, stacking redundant visuals.
+    const snapshot = this.blocks.slice();
+    for (const block of snapshot) {
       if (block.isStacked) continue;
+      if (!this.blocks.includes(block)) continue; // removed by a prior hit this tick
       const d = this.pointToSegmentDistance(block.x, block.y, ax, ay, bx, by);
       if (d <= block.halfSize() + 8) {
         this.hitBlock(block);
