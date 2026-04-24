@@ -70,7 +70,11 @@ export function GameCanvas(props: GameCanvasProps) {
       const height = hostRef.current.clientHeight;
 
       const game = new Phaser.Game({
-        type: Phaser.CANVAS,
+        // AUTO picks WebGL when available, falls back to Canvas. The Canvas
+        // renderer chokes on per-frame thick-stroked graphics with additive
+        // blend (the sweep beam does exactly that), causing frame stalls on
+        // Medium+. WebGL handles it trivially.
+        type: Phaser.AUTO,
         parent: hostRef.current,
         backgroundColor: "#19191A",
         width,

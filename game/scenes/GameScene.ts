@@ -809,22 +809,16 @@ export class GameScene extends Phaser.Scene {
     const endX = this.pointerWorldX;
     const endY = this.pointerWorldY;
 
-    // Outer glow (soft, additive)
-    g.lineStyle(18, SWEEP_GREEN, 0.18);
-    g.setBlendMode(Phaser.BlendModes.ADD);
+    // Two-band beam: glow (semi-transparent, 10px) + bright core (2px white).
+    // The earlier 3-layer additive-blend build froze Canvas-renderer builds
+    // on Medium+ — per-frame thick-stroked additive lines are one of the
+    // Canvas 2D path's worst code paths. Two passes, no additive blend.
+    g.lineStyle(10, SWEEP_GREEN, 0.55);
     g.beginPath();
     g.moveTo(startX, startY);
     g.lineTo(endX, endY);
     g.strokePath();
 
-    // Mid-intensity band
-    g.lineStyle(8, SWEEP_GREEN, 0.5);
-    g.beginPath();
-    g.moveTo(startX, startY);
-    g.lineTo(endX, endY);
-    g.strokePath();
-
-    // Bright core
     g.lineStyle(2, 0xffffff, 0.95);
     g.beginPath();
     g.moveTo(startX, startY);
