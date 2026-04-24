@@ -9,6 +9,7 @@ import { WalletChip } from "@/components/ui/WalletChip";
 import { useAuth } from "@/hooks/useAuth";
 import { useBlok } from "@/hooks/useBlok";
 import { useToast } from "@/components/ui/Toast";
+import { txLink } from "@/lib/txLink";
 
 const WAGER_TIERS = [50, 100, 200, 500] as const;
 
@@ -60,7 +61,11 @@ export default function DifficultyPage() {
       const data = await res.json();
       if (!res.ok) throw new Error(data.error ?? "wager failed");
       blok.addOptimistic(-amount);
-      toast.push("success", `wager placed: ${amount} $BLOK`);
+      toast.push(
+        "success",
+        `wager placed: ${amount} $BLOK`,
+        txLink(data.txHash)
+      );
       router.push(`/game?mode=${modeId}`);
     } catch (e) {
       const msg = e instanceof Error ? e.message : "wager failed";
@@ -110,7 +115,8 @@ export default function DifficultyPage() {
                 if (!res.ok) throw new Error(data.error ?? "forfeit failed");
                 toast.push(
                   "success",
-                  data.skipped ? "no wager was active" : `burned ${data.burned} $BLOK`
+                  data.skipped ? "no wager was active" : `burned ${data.burned} $BLOK`,
+                  data.skipped ? undefined : txLink(data.txHash)
                 );
                 await blok.refresh();
               } catch (e) {

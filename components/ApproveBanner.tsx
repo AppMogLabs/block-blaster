@@ -5,6 +5,7 @@ import { useAuth } from "@/hooks/useAuth";
 import { useBlok } from "@/hooks/useBlok";
 import { useToast } from "@/components/ui/Toast";
 import { publicConfig } from "@/lib/config";
+import { txLink } from "@/lib/txLink";
 
 /**
  * Shown globally when the player is signed in but has not yet approved the
@@ -65,7 +66,7 @@ export function ApproveBanner() {
     setSubmitting(true);
     try {
       const hash = await approve();
-      toast.push("success", `$BLOK spending approved. tx ${hash.slice(0, 10)}…`);
+      toast.push("success", "$BLOK spending approved", txLink(hash));
       await refresh();
     } catch (e) {
       const msg = e instanceof Error ? e.message : "approve failed";

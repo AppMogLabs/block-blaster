@@ -14,35 +14,7 @@ import { pickWinPhrase, pickDiePhrase } from "@/lib/endGameMessaging";
 import { GameErrorBoundary } from "@/components/game/GameErrorBoundary";
 import { useBlok } from "@/hooks/useBlok";
 import { useToast } from "@/components/ui/Toast";
-
-type MintArgs = {
-  token: string;
-  score: number;
-  walletAddress: string;
-  modeId: number;
-};
-
-/**
- * Single-shot mint. A previous version auto-refetched a fresh session on
- * "already used" and retried — that was structurally broken: the fresh
- * session has elapsed≈0 so the anti-cheat plausibility ceiling collapses
- * to near zero and any real score is rejected. If the server sees "already
- * used" it means this run was already minted (or double-clicked through
- * the race); we surface the raw error and let the player retry.
- */
-async function mintOnce(args: MintArgs): Promise<{
-  txHash: string | null;
-  leaderboardTxHash?: string | null;
-}> {
-  const res = await fetch("/api/mint", {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify(args),
-  });
-  if (res.ok) return res.json();
-  const data = await res.json().catch(() => ({}));
-  throw new Error(data?.error ?? `mint failed (${res.status})`);
-}
+import { txLink } from "@/lib/txLink";
 
 // Phaser + canvas → client-only
 const GameCanvas = dynamic(
@@ -219,7 +191,7 @@ export function GameView() {
         // chain + propagate back through /api/balance. The hook also
         // re-reads chain at +1.2s to reconcile.
         blok.addOptimistic(justBanked);
-        toast.push("success", `+${justBanked} $BLOK minted`);
+        toast.push("success", `+${justBanked} $BLOK minted`, txLink(data.txHash));
       } catch (e) {
         const msg = e instanceof Error ? e.message : "bank failed";
         toast.push("error", `bank: ${msg}`);
@@ -270,7 +242,11 @@ export function GameView() {
       if (!res.ok) throw new Error(data.error ?? "reload failed");
       handleRef.current?.refillSweep();
       blok.addOptimistic(-25);
-      toast.push("success", "−25 $BLOK (sweep refilled)");
+      toast.push(
+        "success",
+        "−25 $BLOK (sweep refilled)",
+        txLink(data.txHash)
+      );
     } catch (e) {
       const msg = e instanceof Error ? e.message : "reload failed";
       toast.push("error", msg);
@@ -300,7 +276,7 @@ export function GameView() {
       // Mirror the server-side burn locally so a subsequent action sees the
       // post-spend balance immediately.
       blok.addOptimistic(-100);
-      toast.push("success", "−100 $BLOK (nuke)");
+      toast.push("success", "−100 $BLOK (nuke)", txLink(data.txHash));
     } catch (e) {
       const msg = e instanceof Error ? e.message : "nuke charge failed";
       toast.push("error", msg);
@@ -488,9 +464,6 @@ export function GameView() {
             score={screen.score}
             modeId={modeId}
             peakCombo={peakCombo}
-            token={sessionToken}
-            sessionError={sessionError}
-            walletAddress={walletAddress}
             isAuthenticated={isAuthenticated}
             onSignIn={login}
             onRetry={retry}
@@ -502,9 +475,6 @@ export function GameView() {
             lostPending={screen.lostPending}
             modeId={modeId}
             peakCombo={peakCombo}
-            token={sessionToken}
-            sessionError={sessionError}
-            walletAddress={walletAddress}
             isAuthenticated={isAuthenticated}
             onSignIn={login}
             onRetry={retry}
@@ -732,9 +702,6 @@ function SurvivedOverlay({
   score,
   modeId,
   peakCombo,
-  token,
-  sessionError,
-  walletAddress,
   isAuthenticated,
   onSignIn,
   onRetry,
@@ -742,43 +709,12 @@ function SurvivedOverlay({
   score: number;
   modeId: number;
   peakCombo: number;
-  token: string | null;
-  sessionError: string | null;
-  walletAddress: string | null;
   isAuthenticated: boolean;
   onSignIn: () => void;
   onRetry: () => void;
 }) {
   const phrase = pickWinPhrase({ score, combo: peakCombo, modeId });
-  const [minting, setMinting] = useState(false);
-  const [txHash, setTxHash] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
-
-  const canCommit = Boolean(walletAddress && token);
-  const signedInButNoSession = Boolean(walletAddress && !token);
   const isGuest = !isAuthenticated;
-  // Ref-based idempotency. `minting` state updates are async, so a fast
-  // double-click can fire `commit` twice before the button disables —
-  // the first consumes the session, the second gets "already used".
-  // The ref is synchronous and locks out the second call immediately.
-  const inFlightRef = useRef(false);
-
-  const commit = async () => {
-    if (!walletAddress || !token) return;
-    if (inFlightRef.current) return;
-    inFlightRef.current = true;
-    setMinting(true);
-    setError(null);
-    try {
-      const data = await mintOnce({ token, score, walletAddress, modeId });
-      setTxHash(data.txHash);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "mint error");
-    } finally {
-      inFlightRef.current = false;
-      setMinting(false);
-    }
-  };
 
   const shareUrl = `https://twitter.com/intent/tweet?text=${encodeURIComponent(
     `I scored ${score} in Block Blaster on MegaETH. Can you beat it? → https://block-blaster.app`
@@ -831,9 +767,6 @@ function DiedOverlay({
   lostPending,
   modeId,
   peakCombo,
-  token,
-  sessionError,
-  walletAddress,
   isAuthenticated,
   onSignIn,
   onRetry,
@@ -842,39 +775,12 @@ function DiedOverlay({
   lostPending: number;
   modeId: number;
   peakCombo: number;
-  token: string | null;
-  sessionError: string | null;
-  walletAddress: string | null;
   isAuthenticated: boolean;
   onSignIn: () => void;
   onRetry: () => void;
 }) {
   const phrase = pickDiePhrase({ score, combo: peakCombo, modeId });
-  const [minting, setMinting] = useState(false);
-  const [txHash, setTxHash] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const inFlightRef = useRef(false);
-
-  const canCommit = Boolean(walletAddress && token && score > 0);
-  const signedInButNoSession = Boolean(walletAddress && !token);
   const isGuest = !isAuthenticated;
-
-  const commit = async () => {
-    if (!walletAddress || !token || score <= 0) return;
-    if (inFlightRef.current) return;
-    inFlightRef.current = true;
-    setMinting(true);
-    setError(null);
-    try {
-      const data = await mintOnce({ token, score, walletAddress, modeId });
-      setTxHash(data.txHash);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "mint error");
-    } finally {
-      inFlightRef.current = false;
-      setMinting(false);
-    }
-  };
 
   const shareUrl = `https://twitter.com/intent/tweet?text=${encodeURIComponent(
     `${phrase.title} I banked ${score} in Block Blaster. → https://block-blaster.app`
