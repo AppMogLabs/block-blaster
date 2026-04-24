@@ -97,7 +97,11 @@ export async function POST(req: NextRequest) {
 
   try {
     const tx = await gameRewards.recordDeath(walletAddress);
-    log.info("death_recorded", {
+    // Await confirmation so a reverted burn is surfaced as an error instead
+    // of silently leaving the wager stuck in escrow. Matches the wait-on-
+    // confirmation pattern used by /api/bank and /api/nuke.
+    await tx.wait();
+    log.info("death_burned", {
       wallet: shortWallet(walletAddress),
       modeId,
       txHash: tx.hash,

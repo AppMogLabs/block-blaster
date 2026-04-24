@@ -96,6 +96,26 @@ export default function DifficultyPage() {
             amount={blok.activeWagerAmount}
             modeId={blok.activeWagerMode}
             onResume={() => router.push(`/game?mode=${blok.activeWagerMode}`)}
+            onForfeit={async () => {
+              if (!walletAddress) return;
+              try {
+                const res = await fetch("/api/wager/forfeit", {
+                  method: "POST",
+                  headers: { "content-type": "application/json" },
+                  body: JSON.stringify({ walletAddress }),
+                });
+                const data = await res.json();
+                if (!res.ok) throw new Error(data.error ?? "forfeit failed");
+                toast.push(
+                  "success",
+                  data.skipped ? "no wager was active" : `burned ${data.burned} $BLOK`
+                );
+                await blok.refresh();
+              } catch (e) {
+                const msg = e instanceof Error ? e.message : "forfeit failed";
+                toast.push("error", msg);
+              }
+            }}
           />
         )}
         <h2 className="text-3xl sm:text-4xl font-bold mb-2">Pick your tempo</h2>
@@ -170,10 +190,12 @@ function ActiveWagerBanner({
   amount,
   modeId,
   onResume,
+  onForfeit,
 }: {
   amount: number;
   modeId: number;
   onResume: () => void;
+  onForfeit: () => void | Promise<void>;
 }) {
   const mode = DIFFICULTY_MODES.find((m) => m.id === modeId);
   return (
@@ -191,9 +213,18 @@ function ActiveWagerBanner({
           . Finish that run — bank to settle, die to burn.
         </div>
       </div>
-      <button onClick={onResume} className="btn-primary text-xs whitespace-nowrap">
-        Resume {mode?.label ?? "run"}
-      </button>
+      <div className="flex gap-2 whitespace-nowrap">
+        <button onClick={onResume} className="btn-primary text-xs">
+          Resume {mode?.label ?? "run"}
+        </button>
+        <button
+          onClick={onForfeit}
+          className="btn-secondary text-xs"
+          title="Burn the wager without playing — last-resort recovery"
+        >
+          Forfeit
+        </button>
+      </div>
     </div>
   );
 }
