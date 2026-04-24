@@ -27,21 +27,11 @@ export type HeatLevel = 0 | 1 | 2 | 3 | 4 | 5;
 /** Streak thresholds map 1:1 to heat levels (25 is heat tier 5). */
 const HEAT_THRESHOLDS: readonly number[] = [5, 10, 15, 20, 25];
 /**
- * Cumulative blocks destroyed to charge a nuke — per mode, so Easy players
- * can earn one in a clean run without grinding, while Real-time awards
- * multiple nukes per run. Charge does NOT reset on bank or miss, only on
- * nuke use, so banking early doesn't kill progress toward the nuke.
- *
- * Calibrated against realistic bank-heavy play on each mode:
- *   avg ~15 pts/kill (mostly 1x-2x multiplier) → threshold ≈ expected
- *   kill count at 60-80% of a clean run.
+ * Nuke activation streak floor. Combined with a $BLOK balance check in the
+ * React layer, this is half of the dual-condition gate from the spec.
+ * Scene refuses to fire the visual unless streak >= this.
  */
-const NUKE_KILL_THRESHOLD: Record<0 | 1 | 2 | 3, number> = {
-  0: 20, // Easy — about half a clean 90s run
-  1: 40, // Medium
-  2: 70, // Hard
-  3: 100, // Real-time
-};
+const NUKE_STREAK_THRESHOLD = 25;
 const SWEEP_FUEL_MAX_MS = 3000;
 const SWEEP_RECHARGE_MS = 3000;
 const SWEEP_HOLD_THRESHOLD_MS = 150;
@@ -105,19 +95,17 @@ export class GameScene extends Phaser.Scene {
   private heatLevel: HeatLevel = 0;
   private heatLayer?: Phaser.GameObjects.Graphics;
   private vignetteLayer?: Phaser.GameObjects.Graphics;
-  private nukeCharged = false;
-  /** Cumulative blocks destroyed since last nuke use. Never reset by bank
-   *  or miss — only by triggerNuke(). Drives nuke charging. */
-  private nukeProgress = 0;
+  /** Tracks whether we've already played the streak-25 "NUKE READY" chime
+   *  for the current streak run. Resets when streak drops below 25. */
+  private nukeChimePlayed = false;
 
   // HUD emit throttle — sweep can destroy ~10 blocks per tick; emitting a
-  // SCORE + COMBO + STREAK + NUKE event for each one floods React with
-  // state updates and stalls the main thread. We flag dirtiness and flush
-  // at most every 50ms (20Hz), which is well under the HUD's visible
-  // refresh rate.
+  // SCORE + COMBO + STREAK event for each one floods React with state
+  // updates and stalls the main thread. We flag dirtiness and flush at
+  // most every 50ms (20Hz), which is well under the HUD's visible refresh
+  // rate.
   private scoreDirty = false;
   private comboDirty = false;
-  private nukeProgressDirty = false;
   private lastHudEmit = 0;
 
   // Sweep state
@@ -478,22 +466,14 @@ export class GameScene extends Phaser.Scene {
       this.sfx(SFX.STREAK, { volume: 0.7 });
     }
 
-    // Nuke charging — cumulative, not streak-based. A player who banks
-    // frequently (smart play) still earns nukes at the same rate.
-    if (!this.nukeCharged) {
-      this.nukeProgress += 1;
-      const threshold = NUKE_KILL_THRESHOLD[this.cfg.modeId];
-      if (this.nukeProgress >= threshold) {
-        // Charge transition is a one-shot — emit immediately + flash.
-        this.nukeCharged = true;
-        this.nukeProgress = 0;
-        this.cfg.bus.emit(GAME_EVENTS.NUKE, { charged: true, progress: 1 });
-        this.sfx(SFX.STREAK, { volume: 0.9, rate: 1.3 });
-        this.flashText("NUKE READY", 0xffd26d);
-      } else {
-        // Progress updates throttle alongside SCORE/COMBO — flushed 20Hz.
-        this.nukeProgressDirty = true;
-      }
+    // Nuke readiness is now dual-gated (streak >= 25 AND balance >= 100).
+    // The balance half lives in React (via useBlok), so the scene only
+    // handles the streak threshold. Fire a one-shot "ready" chime + flash
+    // the first time streak crosses 25.
+    if (this.streak === NUKE_STREAK_THRESHOLD && !this.nukeChimePlayed) {
+      this.nukeChimePlayed = true;
+      this.sfx(SFX.STREAK, { volume: 0.9, rate: 1.3 });
+      this.flashText("NUKE READY", 0xffd26d);
     }
 
     this.applyHeat();
@@ -635,6 +615,7 @@ export class GameScene extends Phaser.Scene {
   private onMiss() {
     if (this.streak > 0) {
       this.streak = 0;
+      this.nukeChimePlayed = false;
       this.sfx(SFX.STREAK_BREAK, { volume: 0.5, rate: 0.8 });
       this.applyHeat();
       // Streak reset is important visually — flush immediately so the HUD
@@ -661,7 +642,7 @@ export class GameScene extends Phaser.Scene {
    * and the score/combo counters stay in lockstep.
    */
   private flushHudIfDirty() {
-    if (!this.scoreDirty && !this.comboDirty && !this.nukeProgressDirty) return;
+    if (!this.scoreDirty && !this.comboDirty) return;
     if (this.time.now - this.lastHudEmit < 50) return;
     if (this.scoreDirty) {
       this.cfg.bus.emit(GAME_EVENTS.SCORE, {
@@ -674,14 +655,6 @@ export class GameScene extends Phaser.Scene {
     if (this.comboDirty) {
       this.emitCombo();
       this.comboDirty = false;
-    }
-    if (this.nukeProgressDirty) {
-      const threshold = NUKE_KILL_THRESHOLD[this.cfg.modeId];
-      this.cfg.bus.emit(GAME_EVENTS.NUKE, {
-        charged: this.nukeCharged,
-        progress: this.nukeCharged ? 1 : this.nukeProgress / threshold,
-      });
-      this.nukeProgressDirty = false;
     }
     this.lastHudEmit = this.time.now;
   }
@@ -783,12 +756,11 @@ export class GameScene extends Phaser.Scene {
   // ─── Nuke ────────────────────────────────────────────────────────────────
 
   public triggerNuke() {
-    // Only bail if we've never charged — a late click right as the game
-    // ends should still wipe the screen rather than silently no-op. The
-    // `nukeCharged` guard keeps double-click safe.
-    if (!this.nukeCharged) return;
-    this.nukeCharged = false;
-    this.cfg.bus.emit(GAME_EVENTS.NUKE, { charged: false, progress: 0 });
+    // Streak gate — dual-condition balance check happens React-side.
+    // Refuse if streak is below threshold or game is over. Resetting
+    // streak below threshold lets the chime re-fire on the next 25 streak.
+    if (this.state !== "running" || this.streak < NUKE_STREAK_THRESHOLD) return;
+    this.nukeChimePlayed = false;
 
     this.cameras.main.shake(600, 0.05);
 
@@ -1113,6 +1085,7 @@ export class GameScene extends Phaser.Scene {
     this.banked += this.pending;
     this.pending = 0;
     this.streak = 0;
+    this.nukeChimePlayed = false;
 
     this.sfx(SFX.STREAK, { volume: 0.55, rate: 1.25 });
 
@@ -1157,5 +1130,34 @@ export class GameScene extends Phaser.Scene {
    */
   public bankEarly() {
     this.bank();
+  }
+
+  /**
+   * Instantly refill the sweep fuel bar. Called after /api/sweep-reload
+   * confirms a 25-$BLOK spend. Safe to call mid-game; the beam picks up
+   * from a full tank on the next hold.
+   */
+  public refillSweep() {
+    if (this.state !== "running") return;
+    if (this.cfg.modeId === 0) return; // no sweep on Easy
+    this.sweepFuelMs = SWEEP_FUEL_MAX_MS;
+    this.sweepArmedForThisHold = true;
+    this.emitSweepFuel(true);
+    const flash = this.add
+      .rectangle(
+        this.scale.width / 2,
+        this.scale.height / 2,
+        this.scale.width,
+        this.scale.height,
+        0x6dd0a9,
+        0.2
+      )
+      .setDepth(450);
+    this.tweens.add({
+      targets: flash,
+      alpha: 0,
+      duration: 260,
+      onComplete: () => flash.destroy(),
+    });
   }
 }

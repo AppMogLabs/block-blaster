@@ -11,8 +11,6 @@ export const GAME_EVENTS = {
   READY: "ready",
   /** Streak + heat level (0-5). Fires on every streak change. */
   STREAK: "streak",
-  /** Player has a nuke banked. Fires once when charged, once when used. */
-  NUKE: "nuke",
   /** Sweep fuel: 0..1. Fires ~6Hz while active or recharging. */
   SWEEP_FUEL: "sweepFuel",
   /** Player committed pending → banked. Game continues. */
@@ -28,7 +26,6 @@ export type GameEventPayload = {
   gameWin: { score: number; lostPending: number };
   ready: Record<string, never>;
   streak: { streak: number; heatLevel: 0 | 1 | 2 | 3 | 4 | 5 };
-  nuke: { charged: boolean; progress: number };
   sweepFuel: { fuel: number; available: boolean };
   bank: { banked: number; justBanked: number };
 };

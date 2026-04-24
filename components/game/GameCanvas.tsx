@@ -9,6 +9,7 @@ export type GameCanvasHandle = {
   /** Legacy alias — older callers may still reference this name. */
   bankEarly: () => void;
   triggerNuke: () => void;
+  refillSweep: () => void;
   destroy: () => void;
 };
 
@@ -24,7 +25,6 @@ export type GameCanvasProps = {
   onGameOver: (score: number, lostPending: number) => void;
   onReady?: () => void;
   onStreak?: (streak: number, heatLevel: number) => void;
-  onNuke?: (charged: boolean, progress: number) => void;
   onSweepFuel?: (fuel: number, available: boolean) => void;
   onBank?: (banked: number, justBanked: number) => void;
   registerHandle?: (h: GameCanvasHandle | null) => void;
@@ -67,9 +67,6 @@ export function GameCanvas(props: GameCanvasProps) {
       bus.on(GAME_EVENTS.READY, () => cbRef.current.onReady?.());
       bus.on(GAME_EVENTS.STREAK, (p: { streak: number; heatLevel: number }) =>
         cbRef.current.onStreak?.(p.streak, p.heatLevel)
-      );
-      bus.on(GAME_EVENTS.NUKE, (p: { charged: boolean; progress: number }) =>
-        cbRef.current.onNuke?.(p.charged, p.progress)
       );
       bus.on(GAME_EVENTS.SWEEP_FUEL, (p: { fuel: number; available: boolean }) =>
         cbRef.current.onSweepFuel?.(p.fuel, p.available)
@@ -131,6 +128,12 @@ export function GameCanvas(props: GameCanvasProps) {
             triggerNuke?: () => void;
           } | null;
           scene?.triggerNuke?.();
+        },
+        refillSweep: () => {
+          const scene = sceneRef.current as unknown as {
+            refillSweep?: () => void;
+          } | null;
+          scene?.refillSweep?.();
         },
         destroy: () => game.destroy(true),
       });

@@ -80,8 +80,8 @@ export function GameView() {
   const [milestoneFlash, setMilestoneFlash] = useState<number>(0); // ticks when multiplier changes up
   const [streak, setStreak] = useState(0);
   const [heatLevel, setHeatLevel] = useState(0);
-  const [nukeCharged, setNukeCharged] = useState(false);
-  const [nukeProgress, setNukeProgress] = useState(0);
+  // Nuke readiness is derived from `streak` + wallet balance below, not
+  // stored directly. See NukeButton render.
   const [sweepFuel, setSweepFuel] = useState(1); // 0..1
   const [sweepAvailable, setSweepAvailable] = useState(modeId !== 0);
   const handleRef = useRef<GameCanvasHandle | null>(null);
@@ -225,14 +225,45 @@ export function GameView() {
     setStreak(s);
     setHeatLevel(h);
   }, []);
-  const onNuke = useCallback((charged: boolean, progress: number) => {
-    setNukeCharged(charged);
-    setNukeProgress(progress);
-  }, []);
   const onSweepFuel = useCallback((f: number, a: boolean) => {
     setSweepFuel(f);
     setSweepAvailable(a);
   }, []);
+  const onReloadClick = useCallback(async () => {
+    // Sweep reload: 25 $BLOK to refill fuel instantly. Not available on
+    // Easy (no sweep beam there anyway). Pre-checks to avoid free reload
+    // if the API call fails.
+    if (modeId === 0) return;
+    if (sweepFuel >= 0.98) {
+      toast.push("info", "sweep fuel already full");
+      return;
+    }
+    if (!walletAddress) {
+      toast.push("error", "sign in to reload sweep");
+      return;
+    }
+    if (blok.ready && blok.balance < 25) {
+      toast.push("error", `need 25 $BLOK (have ${blok.balance})`);
+      return;
+    }
+    if (!sessionToken) return;
+    try {
+      const res = await fetch("/api/sweep-reload", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ token: sessionToken, walletAddress, modeId }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error ?? "reload failed");
+      handleRef.current?.refillSweep();
+      blok.addOptimistic(-25);
+      toast.push("success", "−25 $BLOK (sweep refilled)");
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : "reload failed";
+      toast.push("error", msg);
+    }
+  }, [walletAddress, sessionToken, modeId, sweepFuel, blok, toast]);
+
   const onNukeClick = useCallback(async () => {
     // Affordability pre-check so we don't fire the full-screen flash for
     // free when the API call will fail downstream. Guest play (no wallet)
@@ -280,8 +311,6 @@ export function GameView() {
     // Reset the new mechanics — streak/heat/nuke/fuel all start fresh.
     setStreak(0);
     setHeatLevel(0);
-    setNukeCharged(false);
-    setNukeProgress(0);
     setSweepFuel(1);
     setRunKey((k) => k + 1);
   };
@@ -387,7 +416,6 @@ export function GameView() {
               onGameOver={onGameOver}
               onReady={onReady}
               onStreak={onStreak}
-              onNuke={onNuke}
               onSweepFuel={onSweepFuel}
               onBank={onBank}
               registerHandle={(h) => (handleRef.current = h)}
@@ -400,9 +428,18 @@ export function GameView() {
           <>
             <BankButton pending={pending} onBank={onBankClick} />
             {sweepAvailable && <SweepFuelBar fuel={sweepFuel} />}
+            {sweepAvailable && (
+              <SweepReloadButton
+                fuel={sweepFuel}
+                balance={isAuthenticated ? blok.balance : 0}
+                isAuthenticated={isAuthenticated}
+                onActivate={onReloadClick}
+              />
+            )}
             <NukeButton
-              charged={nukeCharged}
-              progress={nukeProgress}
+              streak={streak}
+              balance={isAuthenticated ? blok.balance : 0}
+              isAuthenticated={isAuthenticated}
               onActivate={onNukeClick}
             />
           </>
@@ -463,48 +500,141 @@ function BankButton({
   );
 }
 
-function NukeButton({
-  charged,
-  progress,
+function SweepReloadButton({
+  fuel,
+  balance,
+  isAuthenticated,
   onActivate,
 }: {
-  charged: boolean;
-  /** 0..1 progress toward the next nuke. Ignored when `charged`. */
-  progress: number;
+  fuel: number;
+  balance: number;
+  isAuthenticated: boolean;
   onActivate: () => void;
 }) {
-  const clampedProgress = Math.max(0, Math.min(1, progress));
-  const pct = Math.round(clampedProgress * 100);
+  const COST = 25;
+  const isFull = fuel >= 0.98;
+  const canAfford = isAuthenticated && balance >= COST;
+  const enabled = !isFull && canAfford;
 
-  // Outer ring uses a conic-gradient for the fill arc; an inner circle
-  // masks the middle so only the ring shows. iOS Safari 12.5+ supports
-  // conic-gradient; this is simpler + more reliable than the SVG approach.
-  const ringFill = charged ? "#ffd26d" : "#90D79F";
-  const ringTrack = charged ? "#ffd26d" : "rgba(236,232,232,0.18)";
-  const ringAngle = charged ? 360 : clampedProgress * 360;
+  const label = !isAuthenticated
+    ? "SIGN IN"
+    : isFull
+      ? "FULL"
+      : canAfford
+        ? `+FUEL ${COST}`
+        : `${COST} $BLOK`;
 
   return (
     <button
       onClick={onActivate}
-      disabled={!charged}
-      aria-label={charged ? "Activate nuke" : `Nuke charging — ${pct}%`}
-      className={`absolute top-4 right-4 w-14 h-14 rounded-full p-[3px] transition-all ${
-        charged
-          ? "shadow-[0_0_24px_rgba(255,210,109,0.55)] animate-[milestonePop_1.4s_ease-in-out_infinite] cursor-pointer"
+      disabled={!enabled}
+      aria-label={
+        enabled
+          ? `Refill sweep fuel for ${COST} $BLOK`
+          : isFull
+            ? "Sweep fuel already full"
+            : `Need ${COST} $BLOK (have ${balance})`
+      }
+      className={`absolute top-4 left-4 w-14 h-14 rounded-full p-[3px] transition-all ${
+        enabled
+          ? "cursor-pointer shadow-[0_0_18px_rgba(109,208,169,0.5)] animate-[milestonePop_1.6s_ease-in-out_infinite]"
           : "cursor-not-allowed"
       }`}
       style={{
-        background: `conic-gradient(${ringFill} ${ringAngle}deg, ${ringTrack} ${ringAngle}deg 360deg)`,
+        background: enabled
+          ? "conic-gradient(#6DD0A9 360deg, #6DD0A9 360deg)"
+          : "rgba(236,232,232,0.18)",
       }}
     >
       <span
-        className={`w-full h-full rounded-full flex items-center justify-center mono text-[10px] uppercase ${
-          charged
-            ? "bg-night-sky text-[#ffd26d] font-bold"
-            : "bg-night-sky text-moon-white/70"
+        className={`w-full h-full rounded-full flex items-center justify-center mono text-[9px] uppercase px-1 ${
+          enabled
+            ? "bg-night-sky text-[#6DD0A9] font-bold"
+            : "bg-night-sky text-moon-white/40"
         }`}
       >
-        <span className="tabular-nums">{charged ? "NUKE" : `${pct}%`}</span>
+        <span className="tabular-nums whitespace-nowrap">{label}</span>
+      </span>
+    </button>
+  );
+}
+
+function NukeButton({
+  streak,
+  balance,
+  isAuthenticated,
+  onActivate,
+}: {
+  /** Current consecutive-hit streak. */
+  streak: number;
+  /** $BLOK wallet balance (0 for guests — they can't fire the nuke). */
+  balance: number;
+  /** Signed-in guests see a disabled hint state rather than sign-in copy. */
+  isAuthenticated: boolean;
+  onActivate: () => void;
+}) {
+  const STREAK_THRESHOLD = 25;
+  const COST = 100;
+  const streakMet = streak >= STREAK_THRESHOLD;
+  // Guests can't afford by definition — the nuke is a BLOK-gated action.
+  const balanceMet = isAuthenticated && balance >= COST;
+  const armed = streakMet && balanceMet;
+
+  // Four spec states. Colour + pulse + centre text all shift.
+  let track = "rgba(236,232,232,0.18)"; // grey ring
+  let fill = "rgba(236,232,232,0.18)";
+  let ringAngle = 360;
+  let centreClass = "bg-night-sky text-moon-white/40";
+  let centreText: string = "NUKE";
+  let pulse = false;
+  let shadow = "";
+
+  if (armed) {
+    // Both gates: fully lit MegaETH gold, dramatic pulse
+    fill = "#ffd26d";
+    track = "#ffd26d";
+    centreClass = "bg-night-sky text-[#ffd26d] font-bold";
+    centreText = "NUKE";
+    pulse = true;
+    shadow = "shadow-[0_0_24px_rgba(255,210,109,0.55)]";
+  } else if (streakMet && !balanceMet) {
+    // Earned but can't afford — pulse grey in the same rhythm so the
+    // player feels the rhythm of "it's ready, pay up"
+    centreClass = "bg-night-sky text-moon-white/60";
+    centreText = isAuthenticated ? `${COST} $BLOK` : "SIGN IN";
+    pulse = true;
+    shadow = "shadow-[0_0_12px_rgba(236,232,232,0.2)]";
+  } else if (!streakMet) {
+    // Show streak progress toward 25 as a subtle conic fill
+    const pct = Math.min(1, streak / STREAK_THRESHOLD);
+    ringAngle = pct * 360;
+    fill = "#7EAAD4"; // sky blue — neutral "working toward it"
+    centreClass = "bg-night-sky text-moon-white/40";
+    centreText = `${streak}/${STREAK_THRESHOLD}`;
+  }
+
+  return (
+    <button
+      onClick={onActivate}
+      disabled={!armed}
+      aria-label={
+        armed
+          ? "Activate nuke — 100 $BLOK"
+          : streakMet
+            ? `Nuke ready but needs 100 $BLOK (have ${balance})`
+            : `Nuke requires streak of ${STREAK_THRESHOLD} (at ${streak})`
+      }
+      className={`absolute top-4 right-4 w-14 h-14 rounded-full p-[3px] transition-all ${
+        armed ? "cursor-pointer" : "cursor-not-allowed"
+      } ${pulse ? "animate-[milestonePop_1.4s_ease-in-out_infinite]" : ""} ${shadow}`}
+      style={{
+        background: `conic-gradient(${fill} ${ringAngle}deg, ${track} ${ringAngle}deg 360deg)`,
+      }}
+    >
+      <span
+        className={`w-full h-full rounded-full flex items-center justify-center mono text-[9px] uppercase ${centreClass}`}
+      >
+        <span className="tabular-nums whitespace-nowrap">{centreText}</span>
       </span>
     </button>
   );
