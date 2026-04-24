@@ -98,6 +98,7 @@ export function GameView() {
   const [streak, setStreak] = useState(0);
   const [heatLevel, setHeatLevel] = useState(0);
   const [nukeCharged, setNukeCharged] = useState(false);
+  const [nukeProgress, setNukeProgress] = useState(0);
   const [sweepFuel, setSweepFuel] = useState(1); // 0..1
   const [sweepAvailable, setSweepAvailable] = useState(modeId !== 0);
   const handleRef = useRef<GameCanvasHandle | null>(null);
@@ -180,7 +181,10 @@ export function GameView() {
     setStreak(s);
     setHeatLevel(h);
   }, []);
-  const onNuke = useCallback((charged: boolean) => setNukeCharged(charged), []);
+  const onNuke = useCallback((charged: boolean, progress: number) => {
+    setNukeCharged(charged);
+    setNukeProgress(progress);
+  }, []);
   const onSweepFuel = useCallback((f: number, a: boolean) => {
     setSweepFuel(f);
     setSweepAvailable(a);
@@ -207,6 +211,7 @@ export function GameView() {
     setStreak(0);
     setHeatLevel(0);
     setNukeCharged(false);
+    setNukeProgress(0);
     setSweepFuel(1);
     setRunKey((k) => k + 1);
   };
@@ -307,7 +312,11 @@ export function GameView() {
           <>
             <BankButton pending={pending} onBank={onBankClick} />
             {sweepAvailable && <SweepFuelBar fuel={sweepFuel} />}
-            <NukeButton charged={nukeCharged} onActivate={onNukeClick} />
+            <NukeButton
+              charged={nukeCharged}
+              progress={nukeProgress}
+              onActivate={onNukeClick}
+            />
           </>
         )}
         {screen.kind === "win" && (
@@ -368,23 +377,70 @@ function BankButton({
 
 function NukeButton({
   charged,
+  progress,
   onActivate,
 }: {
   charged: boolean;
+  /** 0..1 progress toward the next nuke. Ignored when `charged`. */
+  progress: number;
   onActivate: () => void;
 }) {
+  // SVG ring — a conic-gradient border would be simpler but isn't well
+  // supported on iOS. SVG circumference trick is universal.
+  const size = 56;
+  const stroke = 3;
+  const r = (size - stroke) / 2;
+  const circumference = 2 * Math.PI * r;
+  const clampedProgress = Math.max(0, Math.min(1, progress));
+  const offset = circumference * (1 - clampedProgress);
+
   return (
     <button
       onClick={onActivate}
       disabled={!charged}
-      aria-label={charged ? "Activate nuke" : "Nuke not yet charged — hit a 25 streak"}
-      className={`absolute top-4 right-4 w-14 h-14 rounded-full border-2 flex items-center justify-center mono text-[10px] uppercase transition-all ${
+      aria-label={
         charged
-          ? "border-[#ffd26d] bg-[#ffd26d]/10 text-[#ffd26d] shadow-[0_0_24px_rgba(255,210,109,0.55)] animate-[milestonePop_1.4s_ease-in-out_infinite] cursor-pointer"
-          : "border-moon-white/15 text-moon-white/25 cursor-not-allowed"
+          ? "Activate nuke"
+          : `Nuke charging — ${Math.round(clampedProgress * 100)}%`
+      }
+      className={`absolute top-4 right-4 w-14 h-14 rounded-full flex items-center justify-center mono text-[10px] uppercase transition-all ${
+        charged
+          ? "bg-[#ffd26d]/10 text-[#ffd26d] shadow-[0_0_24px_rgba(255,210,109,0.55)] animate-[milestonePop_1.4s_ease-in-out_infinite] cursor-pointer"
+          : "bg-moon-white/5 text-moon-white/35 cursor-not-allowed"
       }`}
     >
-      {charged ? "NUKE" : "—"}
+      <svg
+        viewBox={`0 0 ${size} ${size}`}
+        className="absolute inset-0 -rotate-90"
+        aria-hidden="true"
+      >
+        {/* Background ring */}
+        <circle
+          cx={size / 2}
+          cy={size / 2}
+          r={r}
+          fill="none"
+          stroke={charged ? "#ffd26d" : "rgba(236,232,232,0.15)"}
+          strokeWidth={stroke}
+        />
+        {/* Progress ring (hidden when already charged) */}
+        {!charged && clampedProgress > 0 && (
+          <circle
+            cx={size / 2}
+            cy={size / 2}
+            r={r}
+            fill="none"
+            stroke="#90D79F"
+            strokeWidth={stroke}
+            strokeDasharray={circumference}
+            strokeDashoffset={offset}
+            strokeLinecap="round"
+          />
+        )}
+      </svg>
+      <span className="relative z-10 tabular-nums">
+        {charged ? "NUKE" : `${Math.round(clampedProgress * 100)}%`}
+      </span>
     </button>
   );
 }

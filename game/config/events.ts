@@ -28,7 +28,7 @@ export type GameEventPayload = {
   gameWin: { score: number; lostPending: number };
   ready: Record<string, never>;
   streak: { streak: number; heatLevel: 0 | 1 | 2 | 3 | 4 | 5 };
-  nuke: { charged: boolean };
+  nuke: { charged: boolean; progress: number };
   sweepFuel: { fuel: number; available: boolean };
   bank: { banked: number; justBanked: number };
 };

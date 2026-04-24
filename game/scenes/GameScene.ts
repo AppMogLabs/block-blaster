@@ -31,12 +31,16 @@ const HEAT_THRESHOLDS: readonly number[] = [5, 10, 15, 20, 25];
  * can earn one in a clean run without grinding, while Real-time awards
  * multiple nukes per run. Charge does NOT reset on bank or miss, only on
  * nuke use, so banking early doesn't kill progress toward the nuke.
+ *
+ * Calibrated against realistic bank-heavy play on each mode:
+ *   avg ~15 pts/kill (mostly 1x-2x multiplier) → threshold ≈ expected
+ *   kill count at 60-80% of a clean run.
  */
 const NUKE_KILL_THRESHOLD: Record<0 | 1 | 2 | 3, number> = {
-  0: 30, // Easy
-  1: 60, // Medium
-  2: 100, // Hard
-  3: 150, // Real-time
+  0: 20, // Easy — about half a clean 90s run
+  1: 40, // Medium
+  2: 70, // Hard
+  3: 100, // Real-time
 };
 const SWEEP_FUEL_MAX_MS = 3000;
 const SWEEP_RECHARGE_MS = 3000;
@@ -107,11 +111,13 @@ export class GameScene extends Phaser.Scene {
   private nukeProgress = 0;
 
   // HUD emit throttle — sweep can destroy ~10 blocks per tick; emitting a
-  // SCORE + COMBO + STREAK event for each one floods React with state
-  // updates and stalls the main thread. We flag dirtiness and flush at most
-  // every 50ms (20Hz), which is well under the HUD's visible refresh rate.
+  // SCORE + COMBO + STREAK + NUKE event for each one floods React with
+  // state updates and stalls the main thread. We flag dirtiness and flush
+  // at most every 50ms (20Hz), which is well under the HUD's visible
+  // refresh rate.
   private scoreDirty = false;
   private comboDirty = false;
+  private nukeProgressDirty = false;
   private lastHudEmit = 0;
 
   // Sweep state
@@ -454,11 +460,15 @@ export class GameScene extends Phaser.Scene {
       this.nukeProgress += 1;
       const threshold = NUKE_KILL_THRESHOLD[this.cfg.modeId];
       if (this.nukeProgress >= threshold) {
+        // Charge transition is a one-shot — emit immediately + flash.
         this.nukeCharged = true;
         this.nukeProgress = 0;
-        this.cfg.bus.emit(GAME_EVENTS.NUKE, { charged: true });
+        this.cfg.bus.emit(GAME_EVENTS.NUKE, { charged: true, progress: 1 });
         this.sfx(SFX.STREAK, { volume: 0.9, rate: 1.3 });
         this.flashText("NUKE READY", 0xffd26d);
+      } else {
+        // Progress updates throttle alongside SCORE/COMBO — flushed 20Hz.
+        this.nukeProgressDirty = true;
       }
     }
 
@@ -627,7 +637,7 @@ export class GameScene extends Phaser.Scene {
    * and the score/combo counters stay in lockstep.
    */
   private flushHudIfDirty() {
-    if (!this.scoreDirty && !this.comboDirty) return;
+    if (!this.scoreDirty && !this.comboDirty && !this.nukeProgressDirty) return;
     if (this.time.now - this.lastHudEmit < 50) return;
     if (this.scoreDirty) {
       this.cfg.bus.emit(GAME_EVENTS.SCORE, {
@@ -640,6 +650,14 @@ export class GameScene extends Phaser.Scene {
     if (this.comboDirty) {
       this.emitCombo();
       this.comboDirty = false;
+    }
+    if (this.nukeProgressDirty) {
+      const threshold = NUKE_KILL_THRESHOLD[this.cfg.modeId];
+      this.cfg.bus.emit(GAME_EVENTS.NUKE, {
+        charged: this.nukeCharged,
+        progress: this.nukeCharged ? 1 : this.nukeProgress / threshold,
+      });
+      this.nukeProgressDirty = false;
     }
     this.lastHudEmit = this.time.now;
   }
@@ -743,7 +761,7 @@ export class GameScene extends Phaser.Scene {
   public triggerNuke() {
     if (this.state !== "running" || !this.nukeCharged) return;
     this.nukeCharged = false;
-    this.cfg.bus.emit(GAME_EVENTS.NUKE, { charged: false });
+    this.cfg.bus.emit(GAME_EVENTS.NUKE, { charged: false, progress: 0 });
 
     this.sfx(SFX.NUKE, { volume: 0.9, rate: 0.95 });
     this.cameras.main.shake(600, 0.05);

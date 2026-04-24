@@ -24,7 +24,7 @@ export type GameCanvasProps = {
   onGameOver: (score: number, lostPending: number) => void;
   onReady?: () => void;
   onStreak?: (streak: number, heatLevel: number) => void;
-  onNuke?: (charged: boolean) => void;
+  onNuke?: (charged: boolean, progress: number) => void;
   onSweepFuel?: (fuel: number, available: boolean) => void;
   onBank?: (banked: number, justBanked: number) => void;
   registerHandle?: (h: GameCanvasHandle | null) => void;
@@ -68,8 +68,8 @@ export function GameCanvas(props: GameCanvasProps) {
       bus.on(GAME_EVENTS.STREAK, (p: { streak: number; heatLevel: number }) =>
         cbRef.current.onStreak?.(p.streak, p.heatLevel)
       );
-      bus.on(GAME_EVENTS.NUKE, (p: { charged: boolean }) =>
-        cbRef.current.onNuke?.(p.charged)
+      bus.on(GAME_EVENTS.NUKE, (p: { charged: boolean; progress: number }) =>
+        cbRef.current.onNuke?.(p.charged, p.progress)
       );
       bus.on(GAME_EVENTS.SWEEP_FUEL, (p: { fuel: number; available: boolean }) =>
         cbRef.current.onSweepFuel?.(p.fuel, p.available)
