@@ -89,6 +89,14 @@ export class GameScene extends Phaser.Scene {
   private vignetteLayer?: Phaser.GameObjects.Graphics;
   private nukeCharged = false;
 
+  // HUD emit throttle — sweep can destroy ~10 blocks per tick; emitting a
+  // SCORE + COMBO + STREAK event for each one floods React with state
+  // updates and stalls the main thread. We flag dirtiness and flush at most
+  // every 50ms (20Hz), which is well under the HUD's visible refresh rate.
+  private scoreDirty = false;
+  private comboDirty = false;
+  private lastHudEmit = 0;
+
   // Sweep state
   private pointerDownAt = 0;
   private pointerDownX = 0;
@@ -270,6 +278,9 @@ export class GameScene extends Phaser.Scene {
     // Sweep beam
     this.tickSweep(delta);
 
+    // Throttled HUD emit
+    this.flushHudIfDirty();
+
     // Danger
     this.drawDangerBar(this.stackFraction());
 
@@ -419,8 +430,9 @@ export class GameScene extends Phaser.Scene {
     }
 
     this.applyHeat();
-    this.cfg.bus.emit(GAME_EVENTS.SCORE, { score: this.score });
-    this.emitCombo();
+    // Defer the HUD event to the next throttled tick — see flushHudIfDirty().
+    this.scoreDirty = true;
+    this.comboDirty = true;
   }
 
   // ─── Bomb explosions ─────────────────────────────────────────────────────
@@ -558,7 +570,10 @@ export class GameScene extends Phaser.Scene {
       this.streak = 0;
       this.sfx(SFX.STREAK_BREAK, { volume: 0.5, rate: 0.8 });
       this.applyHeat();
+      // Streak reset is important visually — flush immediately so the HUD
+      // snaps back to 0 without waiting for the next throttled tick.
       this.emitCombo();
+      this.comboDirty = false;
     }
   }
 
@@ -569,6 +584,27 @@ export class GameScene extends Phaser.Scene {
       streak: this.streak,
       heatLevel: this.heatLevel,
     });
+  }
+
+  /**
+   * Sweep + bomb AOE can destroy many blocks per frame. Emitting SCORE +
+   * COMBO + STREAK per block floods React with state updates (~30 re-renders
+   * per 80ms tick during active sweep), stalling the main thread enough to
+   * feel like a freeze. Throttle to 20Hz — the HUD updates visually smooth
+   * and the score/combo counters stay in lockstep.
+   */
+  private flushHudIfDirty() {
+    if (!this.scoreDirty && !this.comboDirty) return;
+    if (this.time.now - this.lastHudEmit < 50) return;
+    if (this.scoreDirty) {
+      this.cfg.bus.emit(GAME_EVENTS.SCORE, { score: this.score });
+      this.scoreDirty = false;
+    }
+    if (this.comboDirty) {
+      this.emitCombo();
+      this.comboDirty = false;
+    }
+    this.lastHudEmit = this.time.now;
   }
 
   // ─── Heat system ─────────────────────────────────────────────────────────
@@ -921,6 +957,16 @@ export class GameScene extends Phaser.Scene {
     this.state = "over";
     this.stopSweep();
     this.stopMusic();
+    // Force-flush any pending HUD updates so the overlay reads the final
+    // score/combo, not a 50ms-stale value.
+    if (this.scoreDirty) {
+      this.cfg.bus.emit(GAME_EVENTS.SCORE, { score: this.score });
+      this.scoreDirty = false;
+    }
+    if (this.comboDirty) {
+      this.emitCombo();
+      this.comboDirty = false;
+    }
     this.sfx(kind === "win" ? SFX.WIN : SFX.DIE, { volume: 0.6 });
     const evt = kind === "win" ? GAME_EVENTS.GAME_WIN : GAME_EVENTS.GAME_OVER;
     this.cfg.bus.emit(evt, { score: this.score });
