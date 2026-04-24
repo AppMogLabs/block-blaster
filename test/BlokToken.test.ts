@@ -22,11 +22,13 @@ describe("BlokToken", () => {
     expect(await blok.balanceOf(alice.address)).to.equal(42n);
   });
 
-  it("non-owner cannot mint", async () => {
+  it("non-owner / non-minter cannot mint", async () => {
     const { blok, alice } = await deploy();
+    // BlokToken v2 added a `minter` slot alongside owner, with a unified
+    // `onlyMinter` modifier that reverts with BlokUnauthorized.
     await expect(blok.connect(alice).mint(alice.address, 1n)).to.be.revertedWithCustomError(
       blok,
-      "OwnableUnauthorizedAccount"
+      "BlokUnauthorized"
     );
   });
 

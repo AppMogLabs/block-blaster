@@ -12,6 +12,7 @@
     "hardhat:test": "hardhat test",
     "deploy:blok": "hardhat run scripts/deployBlok.ts --network megaeth",
     "deploy:leaderboard": "hardhat run scripts/deployLeaderboard.ts --network megaeth",
+    "deploy:gamerewards": "hardhat run scripts/deployGameRewards.ts --network megaeth",
     "prelaunch": "ts-node scripts/prelaunch-check.ts",
     "test:e2e": "playwright test"
   },

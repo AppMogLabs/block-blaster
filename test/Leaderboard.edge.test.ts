@@ -190,7 +190,7 @@ describe("BlokToken — edge cases", () => {
     expect(await blok.owner()).to.equal(alice.address);
     await expect(blok.mint(alice.address, 1n)).to.be.revertedWithCustomError(
       blok,
-      "OwnableUnauthorizedAccount"
+      "BlokUnauthorized"
     );
     await blok.connect(alice).mint(alice.address, 1n);
     expect(await blok.balanceOf(alice.address)).to.equal(1n);
