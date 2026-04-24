@@ -5,17 +5,20 @@ import { JsonRpcProvider } from "ethers";
 import { publicConfig } from "@/lib/config";
 
 /**
- * Live MegaETH block height + rolling TPS. Polls `eth_blockNumber` every
- * second. On MegaETH mainnet, block time is ~10ms so the "latest block"
- * value moves fast; 1s polling is sufficient for a ticker.
+ * Live MegaETH block height + rolling TPS.
  *
- * For tighter latency use WebSocket `miniBlocks` (see references/frontend-patterns.md
- * in the megaeth skill) — not needed here.
+ * TPS estimate = (avg transactions per sampled block) × (blocks per second).
+ * We can't afford to fetch every block on a 100-bps chain, so we sample one
+ * block per tick and extrapolate. The math assumes transactions distribute
+ * roughly uniformly across blocks — statistically true over a 5s window.
+ *
+ * A previous version returned `db/dt` which is blocks-per-second, mislabelled
+ * as TPS. On testnet with bursty polling that typically floored to 0 or 1.
  */
 export function useMegaEth(pollMs = 1000) {
   const [blockNumber, setBlockNumber] = useState<number | null>(null);
   const [tps, setTps] = useState<number>(0);
-  const samples = useRef<Array<{ t: number; n: number }>>([]);
+  const samples = useRef<Array<{ t: number; n: number; tx: number }>>([]);
   const providerRef = useRef<JsonRpcProvider | null>(null);
 
   useEffect(() => {
@@ -25,11 +28,13 @@ export function useMegaEth(pollMs = 1000) {
 
     async function tick() {
       try {
-        const n = await provider.getBlockNumber();
-        if (!alive) return;
-        setBlockNumber(n);
+        // getBlock("latest") returns both the number and the tx hash list —
+        // one request, both data points.
+        const block = await provider.getBlock("latest");
+        if (!alive || !block) return;
+        setBlockNumber(block.number);
         const now = Date.now();
-        samples.current.push({ t: now, n });
+        samples.current.push({ t: now, n: block.number, tx: block.transactions.length });
         // Keep 5 seconds of samples
         samples.current = samples.current.filter((s) => now - s.t <= 5_000);
         if (samples.current.length >= 2) {
@@ -37,7 +42,16 @@ export function useMegaEth(pollMs = 1000) {
           const last = samples.current[samples.current.length - 1];
           const dt = (last.t - first.t) / 1000;
           const db = last.n - first.n;
-          if (dt > 0 && db >= 0) setTps(Math.round(db / dt));
+          if (dt > 0 && db > 0) {
+            const blocksPerSec = db / dt;
+            const avgTxPerBlock =
+              samples.current.reduce((sum, s) => sum + s.tx, 0) /
+              samples.current.length;
+            setTps(Math.round(blocksPerSec * avgTxPerBlock));
+          } else {
+            // Chain idle or RPC gave identical block back-to-back.
+            setTps(0);
+          }
         }
       } catch {
         // Swallow — preserve last-known values.

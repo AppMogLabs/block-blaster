@@ -7,7 +7,7 @@
 export const DIFFICULTY_MODES = [
   { id: 0, key: "easy", label: "Easy", blocksPerSecond: 1, durationSec: 90, accent: "#90D79F", tagline: "1 in 100 blocks descends" },
   { id: 1, key: "medium", label: "Medium", blocksPerSecond: 5, durationSec: 60, accent: "#7EAAD4", tagline: "1 in 20 blocks descends" },
-  { id: 2, key: "hard", label: "Hard", blocksPerSecond: 15, durationSec: 45, accent: "#F786C6", tagline: "Roughly 1 in 7 blocks descends" },
+  { id: 2, key: "hard", label: "Hard", blocksPerSecond: 15, durationSec: 45, accent: "#F5AF94", tagline: "Roughly 1 in 7 blocks descends" },
   { id: 3, key: "realtime", label: "Real-time", blocksPerSecond: 100, durationSec: 30, accent: "#FF8AA8", tagline: "Every block. Good luck." },
 ] as const;
 
