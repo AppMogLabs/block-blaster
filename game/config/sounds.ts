@@ -30,11 +30,13 @@ export const SOUND_FILES: Record<SfxKey, { src: string; volume: number }> = {
   [SFX.WIN]: { src: "/sounds/finish_success.mp3", volume: 0.65 },
   [SFX.DIE]: { src: "/sounds/game_over.wav", volume: 0.55 },
   [SFX.TAP]: { src: "/sounds/finish_tap.wav", volume: 0.5 },
-  [SFX.MUSIC]: { src: "/sounds/background_music.mp3", volume: 0.2 },
+  // Background music — the previously-used finish_success track is more
+  // dynamic than the old background loop and fits gameplay better.
+  [SFX.MUSIC]: { src: "/sounds/finish_success.mp3", volume: 0.2 },
   // Bomb explosion — reuse the destroyed SFX at lower pitch for now.
   [SFX.BOMB]: { src: "/sounds/photo_destroyed.wav", volume: 0.7 },
-  // Nuke — finish_success is triumphant enough; replace when a proper nuke SFX exists.
-  [SFX.NUKE]: { src: "/sounds/finish_success.mp3", volume: 0.85 },
+  // Nuke — no dedicated sound; the cumulative bomb/explosion SFX covers it.
+  [SFX.NUKE]: { src: "/sounds/photo_destroyed.wav", volume: 0.9 },
   // Sweep beam — continuous laser; reuse the shoot SFX looped at low volume.
   [SFX.SWEEP]: { src: "/sounds/laser_shoot.wav", volume: 0.3 },
 };

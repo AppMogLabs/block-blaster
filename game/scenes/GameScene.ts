@@ -212,24 +212,28 @@ export class GameScene extends Phaser.Scene {
     // arrow function, causing infinite recursion on nuke activation.
   }
 
+  /**
+   * Start the background music. Guards against duplicate instances: if a
+   * previous track is still playing (or hasn't been destroyed yet), stop
+   * and discard it first. Without this guard, subsequent nuke/win events
+   * that used to call play() stacked multiple overlapping playbacks.
+   */
   private startMusic() {
     if (!this.cache.audio.has(SFX.MUSIC)) return;
+    this.killMusic();
     try {
-      this.music = this.sound.add(SFX.MUSIC, { loop: true, volume: 0.18 });
-      // Fade in so the title sting and the music don't clash.
+      this.music = this.sound.add(SFX.MUSIC, { loop: true, volume: 0.2 });
       const m = this.music as Phaser.Sound.BaseSound & { volume?: number };
       if ("volume" in m) m.volume = 0;
       this.music.play();
-      this.tweens.add({
-        targets: m,
-        volume: 0.18,
-        duration: 800,
-      });
+      // Fade in so the transition from silence isn't a hard cut.
+      this.tweens.add({ targets: m, volume: 0.2, duration: 600 });
     } catch {
       /* no-op */
     }
   }
 
+  /** Fade out + stop the current music, but keep the reference for tidy-up. */
   private stopMusic() {
     const m = this.music as (Phaser.Sound.BaseSound & { volume?: number }) | undefined;
     if (!m) return;
@@ -239,6 +243,25 @@ export class GameScene extends Phaser.Scene {
       duration: 400,
       onComplete: () => m.stop(),
     });
+  }
+
+  /** Immediately stop + destroy the current music instance. Used to prevent
+   *  overlapping playbacks when restarting mid-run. */
+  private killMusic() {
+    if (!this.music) return;
+    try {
+      this.music.stop();
+      this.music.destroy();
+    } catch {
+      /* no-op */
+    }
+    this.music = undefined;
+  }
+
+  /** Stop whatever's playing and start fresh from the beginning. */
+  private restartMusic() {
+    this.killMusic();
+    this.startMusic();
   }
 
   private handleResize(size: Phaser.Structs.Size) {
@@ -764,7 +787,10 @@ export class GameScene extends Phaser.Scene {
     this.nukeCharged = false;
     this.cfg.bus.emit(GAME_EVENTS.NUKE, { charged: false, progress: 0 });
 
-    this.sfx(SFX.NUKE, { volume: 0.9, rate: 0.95 });
+    // No dedicated nuke music — the bomb SFX already fires for each caught
+    // block's explosion, which is all the audio feedback the nuke needs.
+    // Adding another sound here stacked with the triumphant music caused
+    // multi-layer overlap when players fired multiple nukes per run.
     this.cameras.main.shake(600, 0.05);
 
     // Full-screen white flash
@@ -1014,7 +1040,14 @@ export class GameScene extends Phaser.Scene {
     if (this.state === "over") return;
     this.state = "over";
     this.stopSweep();
-    this.stopMusic();
+    // On win: restart the music from the beginning so the celebratory
+    // track plays fresh for the overlay without stacking on top of the
+    // existing loop. On death: fade out so the die SFX stands alone.
+    if (kind === "win") {
+      this.restartMusic();
+    } else {
+      this.stopMusic();
+    }
 
     // Timer-up (win) auto-banks pending so the player doesn't lose a streak
     // they never had the chance to bank manually. Death (over) forfeits
@@ -1038,7 +1071,11 @@ export class GameScene extends Phaser.Scene {
       this.comboDirty = false;
     }
 
-    this.sfx(kind === "win" ? SFX.WIN : SFX.DIE, { volume: 0.6 });
+    // Only play the death stinger on loss — the restarted music covers
+    // the win case so we don't layer two copies of the same track.
+    if (kind === "over") {
+      this.sfx(SFX.DIE, { volume: 0.6 });
+    }
     const evt = kind === "win" ? GAME_EVENTS.GAME_WIN : GAME_EVENTS.GAME_OVER;
     this.cfg.bus.emit(evt, { score: this.banked, lostPending });
   }
