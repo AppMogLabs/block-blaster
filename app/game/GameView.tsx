@@ -9,6 +9,7 @@ import { useMegaEth } from "@/hooks/useMegaEth";
 import type { GameCanvasHandle } from "@/components/game/GameCanvas";
 import { publicConfig } from "@/lib/config";
 import { MuteToggle } from "@/components/ui/MuteToggle";
+import { WalletChip } from "@/components/ui/WalletChip";
 import { pickWinPhrase, pickDiePhrase } from "@/lib/endGameMessaging";
 import { GameErrorBoundary } from "@/components/game/GameErrorBoundary";
 import { useBlok } from "@/hooks/useBlok";
@@ -340,6 +341,7 @@ export function GameView() {
             ← Back
           </button>
           <MuteToggle />
+          {isAuthenticated && <WalletChip walletAddress={walletAddress} />}
         </div>
         <div className="flex items-center gap-6 text-sm">
           <div className="mono">

@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 import { DIFFICULTY_MODES } from "@/lib/difficulty";
 import { BlockTicker } from "@/components/ui/BlockTicker";
+import { WalletChip } from "@/components/ui/WalletChip";
 import { useAuth } from "@/hooks/useAuth";
 
 type Entry = { player: string; score: number; timestamp: number; mode: number };
@@ -34,7 +35,10 @@ export default function LeaderboardPage() {
         <Link href="/" className="text-moon-white/60 hover:text-moon-white text-sm">
           ← Home
         </Link>
-        <BlockTicker />
+        <div className="flex items-center gap-4">
+          <BlockTicker />
+          <WalletChip walletAddress={walletAddress} />
+        </div>
       </header>
 
       <section className="flex-1 max-w-3xl w-full mx-auto px-6 pb-10">

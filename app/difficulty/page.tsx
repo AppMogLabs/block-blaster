@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { useRef, useState } from "react";
 import { DIFFICULTY_MODES } from "@/lib/difficulty";
 import { BlockTicker } from "@/components/ui/BlockTicker";
+import { WalletChip } from "@/components/ui/WalletChip";
 import { useAuth } from "@/hooks/useAuth";
 import { useBlok } from "@/hooks/useBlok";
 import { useToast } from "@/components/ui/Toast";
@@ -84,6 +85,7 @@ export default function DifficultyPage() {
               {blok.balance} $BLOK
             </span>
           )}
+          {isAuthenticated && <WalletChip walletAddress={walletAddress} />}
           {isAuthenticated && handle && (
             <span className="mono text-xs text-moon-white/60">@{handle}</span>
           )}

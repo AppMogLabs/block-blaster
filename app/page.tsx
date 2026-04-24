@@ -4,12 +4,13 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { BlockTicker } from "@/components/ui/BlockTicker";
+import { WalletChip } from "@/components/ui/WalletChip";
 import { Logo } from "@/components/ui/Logo";
 import { useAuth } from "@/hooks/useAuth";
 
 export default function Home() {
   const router = useRouter();
-  const { isAuthenticated, login, handle, privyEnabled } = useAuth();
+  const { isAuthenticated, login, handle, privyEnabled, walletAddress } = useAuth();
   // Defer all auth-dependent rendering until after mount — server render and
   // hydration can disagree on these values (e.g. when Privy's bundle lags the
   // env var update). Gating on `mounted` forces identical server/client markup.
@@ -33,6 +34,9 @@ export default function Home() {
         </div>
         <div className="flex items-center gap-4">
           <BlockTicker />
+          {mounted && isAuthenticated && (
+            <WalletChip walletAddress={walletAddress} />
+          )}
           <Link
             href="/leaderboard"
             className="text-xs text-moon-white/60 hover:text-moon-white transition-colors"
