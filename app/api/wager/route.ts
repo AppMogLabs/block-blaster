@@ -40,7 +40,8 @@ export async function POST(req: NextRequest) {
   if (typeof modeId !== "number" || modeId < 0 || modeId > 3) {
     return NextResponse.json({ error: "modeId required" }, { status: 400 });
   }
-  if (![50, 100, 200, 500].includes(Number(amount))) {
+  const wagerAmount = Number(amount);
+  if (![50, 100, 200, 500].includes(wagerAmount)) {
     return NextResponse.json({ error: "amount must be 50, 100, 200, or 500" }, { status: 400 });
   }
 
@@ -82,9 +83,9 @@ export async function POST(req: NextRequest) {
       );
     }
     const balance: bigint = await blok.balanceOf(walletAddress);
-    if (balance < BigInt(amount)) {
+    if (balance < BigInt(wagerAmount)) {
       return NextResponse.json(
-        { error: `insufficient $BLOK (have ${balance}, need ${amount})` },
+        { error: `insufficient $BLOK (have ${balance}, need ${wagerAmount})` },
         { status: 400 }
       );
     }
@@ -92,7 +93,7 @@ export async function POST(req: NextRequest) {
       walletAddress,
       await gameRewards.getAddress()
     );
-    if (allowance < BigInt(amount)) {
+    if (allowance < BigInt(wagerAmount)) {
       return NextResponse.json(
         { error: "approve $BLOK first — allowance too low" },
         { status: 400 }
@@ -108,21 +109,21 @@ export async function POST(req: NextRequest) {
   }
 
   try {
-    const tx = await gameRewards.placeWager(walletAddress, modeId, amount);
+    const tx = await gameRewards.placeWager(walletAddress, modeId, wagerAmount);
     await tx.wait();
     log.info("wager_confirmed", {
       wallet: shortWallet(walletAddress),
       modeId,
-      amount,
+      amount: wagerAmount,
       txHash: tx.hash,
     });
-    return NextResponse.json({ txHash: tx.hash, amount, modeId });
+    return NextResponse.json({ txHash: tx.hash, amount: wagerAmount, modeId });
   } catch (e) {
     const msg = e instanceof Error ? e.message : "rpc error";
     log.error("wager_failed", {
       wallet: shortWallet(walletAddress),
       modeId,
-      amount,
+      amount: wagerAmount,
       error: msg,
     });
     const lower = msg.toLowerCase();
