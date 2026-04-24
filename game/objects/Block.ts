@@ -187,6 +187,8 @@ export class Block extends Phaser.GameObjects.Container {
     });
 
     // Fuse particles — small upward sparks from the top-centre of the block.
+    // Frequency is bumped to 110ms so multiple bombs on-screen don't eat the
+    // particle budget on mobile.
     const sparkKey = this.scene.textures.exists("spark") ? "spark" : "__DEFAULT";
     this.fuseEmitter = this.scene.add.particles(this.x, this.y - this.halfSize(), sparkKey, {
       lifespan: { min: 180, max: 320 },
@@ -196,7 +198,7 @@ export class Block extends Phaser.GameObjects.Container {
       alpha: { start: 0.9, end: 0 },
       tint: [BOMB_CORE, 0xffcc66],
       blendMode: Phaser.BlendModes.ADD,
-      frequency: 60,
+      frequency: 110,
       quantity: 1,
     });
     this.fuseEmitter.setDepth(11);

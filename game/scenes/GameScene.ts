@@ -31,6 +31,10 @@ const SWEEP_FUEL_MAX_MS = 3000;
 const SWEEP_RECHARGE_MS = 3000;
 const SWEEP_HOLD_THRESHOLD_MS = 150;
 const BOMB_RADIUS = BLOCK_SIZE * 1.5; // covers a 3x3 grid of cells
+/** Safety cap: in packed bomb clusters, chains can cascade without bound.
+ *  We allow up to this many recursive detonations per initial trigger; beyond
+ *  that the logic still removes the caught bombs but skips their visuals. */
+const MAX_CHAIN_DEPTH = 6;
 
 /** Per-mode bomb spawn chance (before the rare-block roll wins). */
 const BOMB_CHANCE: Record<0 | 1 | 2 | 3, number> = {
@@ -94,8 +98,9 @@ export class GameScene extends Phaser.Scene {
   private pointerWorldY = 0;
   private sweepActive = false;
   private sweepFuelMs = SWEEP_FUEL_MAX_MS;
-  private sweepAvailable = true;
-  private sweepCooldownMs = 0;
+  /** Set false after sweep depletes fuel; reset to true on pointerup so the
+   *  beam can't strobe on/off while the player keeps holding. */
+  private sweepArmedForThisHold = true;
   private sweepGraphics?: Phaser.GameObjects.Graphics;
   private sweepHitAccumulator = 0;
   private sweepSound?: Phaser.Sound.BaseSound;
@@ -314,6 +319,9 @@ export class GameScene extends Phaser.Scene {
     this.pointerActive = true;
     this.pointerWorldX = p.worldX;
     this.pointerWorldY = p.worldY;
+    // A new press always re-arms the sweep for this hold. The beam still
+    // requires the 150ms + fuel threshold before actually activating.
+    this.sweepArmedForThisHold = true;
     // Immediate tap feel — fire a projectile on every press. Sweep kicks in
     // as a secondary mode if the player keeps holding AND we're above Easy.
     this.shootAt(p.worldX, p.worldY);
@@ -326,6 +334,9 @@ export class GameScene extends Phaser.Scene {
 
   private onPointerUp = () => {
     this.pointerActive = false;
+    // Disarm until the next press so an unreleased hold can't re-trigger
+    // the beam the moment fuel recharges back up.
+    this.sweepArmedForThisHold = false;
     this.stopSweep();
   };
 
@@ -376,7 +387,7 @@ export class GameScene extends Phaser.Scene {
    */
   private hitBlock(b: Block) {
     if (b.isBomb) {
-      this.explodeAt(b.x, b.y, true);
+      this.explodeAt(b.x, b.y, true, 0);
       return;
     }
     const dead = b.takeHit();
@@ -419,46 +430,58 @@ export class GameScene extends Phaser.Scene {
    * by a bomb reaching the stack (playerTriggered=false). Direct hits keep
    * the player's streak rolling and score each destroyed descending block.
    * Auto-detonations clear terrain but count as a miss for streak purposes.
+   *
+   * `chainDepth` caps recursive chain reactions — without this, a packed
+   * stack of bombs can cascade into dozens of concurrent particle bursts
+   * and shockwaves and drop the frame rate through the floor.
    */
-  private explodeAt(cx: number, cy: number, playerTriggered: boolean) {
-    // Screenshake proportional to bomb — moderate, not nuke-level
-    this.cameras.main.shake(220, 0.012);
-    this.sfx(SFX.BOMB, { volume: 0.75, rate: 0.9 + Math.random() * 0.1 });
+  private explodeAt(cx: number, cy: number, playerTriggered: boolean, chainDepth: number) {
+    const drawFx = chainDepth < MAX_CHAIN_DEPTH;
 
-    // Particle burst
-    const sparkKey = this.textures.exists("spark") ? "spark" : "__DEFAULT";
-    const burst = this.add.particles(cx, cy, sparkKey, {
-      lifespan: { min: 300, max: 700 },
-      speed: { min: 200, max: 520 },
-      angle: { min: 0, max: 360 },
-      scale: { start: sparkKey === "spark" ? 0.9 : 1.8, end: 0 },
-      alpha: { start: 1, end: 0 },
-      rotate: { start: 0, end: 360 },
-      quantity: 30,
-      tint: [0xff9d3a, 0xff3a3a, 0xffd26d],
-      blendMode: Phaser.BlendModes.ADD,
-      emitting: false,
-    });
-    burst.explode(30);
-    this.time.delayedCall(900, () => burst.destroy());
+    if (drawFx) {
+      // Screenshake proportional to bomb — moderate, not nuke-level.
+      // Only the first few explosions shake; deeper chains just run logic.
+      this.cameras.main.shake(220, 0.012);
+      this.sfx(SFX.BOMB, { volume: 0.75, rate: 0.9 + Math.random() * 0.1 });
 
-    const shockwave = this.add
-      .circle(cx, cy, 8, 0xff9d3a, 0.6)
-      .setDepth(110);
-    this.tweens.add({
-      targets: shockwave,
-      radius: BOMB_RADIUS * 1.4,
-      alpha: 0,
-      duration: 450,
-      ease: "Cubic.out",
-      onUpdate: (_t, o) => {
-        const r = (o as { radius: number }).radius;
-        shockwave.setRadius(r);
-      },
-      onComplete: () => shockwave.destroy(),
-    });
+      // Particle burst — slimmed down from 30 to 16 now that chains
+      // routinely fire several in quick succession.
+      const sparkKey = this.textures.exists("spark") ? "spark" : "__DEFAULT";
+      const burst = this.add.particles(cx, cy, sparkKey, {
+        lifespan: { min: 300, max: 650 },
+        speed: { min: 180, max: 460 },
+        angle: { min: 0, max: 360 },
+        scale: { start: sparkKey === "spark" ? 0.8 : 1.6, end: 0 },
+        alpha: { start: 1, end: 0 },
+        rotate: { start: 0, end: 360 },
+        quantity: 16,
+        tint: [0xff9d3a, 0xff3a3a, 0xffd26d],
+        blendMode: Phaser.BlendModes.ADD,
+        emitting: false,
+      });
+      burst.explode(16);
+      this.time.delayedCall(800, () => burst.destroy());
 
-    // Remove the bomb itself from the arrays (descending OR stacked)
+      // Shockwave via a Graphics ring + alpha tween — cheaper than a
+      // per-frame onUpdate that re-reads tween target props.
+      const ring = this.add.graphics().setDepth(110);
+      ring.lineStyle(3, 0xff9d3a, 1);
+      ring.strokeCircle(0, 0, BOMB_RADIUS);
+      ring.setPosition(cx, cy);
+      ring.setScale(0.2);
+      this.tweens.add({
+        targets: ring,
+        scale: 1.4,
+        alpha: 0,
+        duration: 420,
+        ease: "Cubic.out",
+        onComplete: () => ring.destroy(),
+      });
+    }
+
+    // Remove the bomb itself from the arrays (descending OR stacked). Tolerate
+    // missing bomb — by the time a chained explodeAt runs, the source bomb may
+    // have already been filtered out.
     const bomb = this.blocks.find((x) => x.x === cx && x.y === cy && x.isBomb);
     if (bomb) {
       if (bomb.isStacked) {
@@ -482,10 +505,16 @@ export class GameScene extends Phaser.Scene {
     }
     for (const b of caught) {
       if (b.isBomb) {
-        // Chain-detonate — a bomb caught in the blast triggers its own AOE.
+        // Chain-detonate — capture coords BEFORE destroying; Phaser resets
+        // x/y on destroyed objects, which would produce chain explosions at
+        // (0, 0) and freeze the frame on a storm of particle managers.
+        const bx = b.x;
+        const by = b.y;
         this.blocks = this.blocks.filter((x) => x !== b);
         b.destroyQuiet();
-        this.time.delayedCall(60, () => this.explodeAt(b.x, b.y, playerTriggered));
+        this.time.delayedCall(50, () =>
+          this.explodeAt(bx, by, playerTriggered, chainDepth + 1)
+        );
         continue;
       }
       if (playerTriggered) {
@@ -515,8 +544,9 @@ export class GameScene extends Phaser.Scene {
       }
     }
 
-    if (!playerTriggered) {
-      // Auto-detonation counts as a miss for streak
+    if (!playerTriggered && chainDepth === 0) {
+      // Auto-detonation counts as a miss for streak — but only for the
+      // ORIGINAL auto-detonation, not for chained bombs.
       this.onMiss();
     }
   }
@@ -710,7 +740,12 @@ export class GameScene extends Phaser.Scene {
     const held = this.pointerActive;
     const heldLongEnough = held && this.time.now - this.pointerDownAt >= SWEEP_HOLD_THRESHOLD_MS;
 
-    if (heldLongEnough && !this.sweepActive && this.sweepAvailable && this.sweepFuelMs > 0) {
+    if (
+      heldLongEnough &&
+      !this.sweepActive &&
+      this.sweepArmedForThisHold &&
+      this.sweepFuelMs > SWEEP_FUEL_MAX_MS * 0.08
+    ) {
       this.startSweep();
     }
 
@@ -718,23 +753,22 @@ export class GameScene extends Phaser.Scene {
       this.sweepFuelMs -= delta;
       if (this.sweepFuelMs <= 0) {
         this.sweepFuelMs = 0;
+        // Burn-out: disarm until pointerup → next pointerdown rearms. This
+        // stops the beam from strobing on/off while fuel recharges under
+        // a still-held finger.
+        this.sweepArmedForThisHold = false;
         this.stopSweep();
       } else {
         this.drawSweep();
         this.damageWithSweep(delta);
       }
     } else if (this.sweepFuelMs < SWEEP_FUEL_MAX_MS) {
-      // Recharging while idle
-      this.sweepCooldownMs += delta;
+      // Recharging while idle — linear over SWEEP_RECHARGE_MS
       const rechargeRate = SWEEP_FUEL_MAX_MS / SWEEP_RECHARGE_MS;
       this.sweepFuelMs = Math.min(
         SWEEP_FUEL_MAX_MS,
         this.sweepFuelMs + rechargeRate * delta
       );
-      if (!this.sweepAvailable && this.sweepFuelMs >= SWEEP_FUEL_MAX_MS * 0.15) {
-        // Re-arm once ~half a second of fuel is back.
-        this.sweepAvailable = true;
-      }
       this.sweepGraphics?.clear();
     } else {
       this.sweepGraphics?.clear();
@@ -758,8 +792,6 @@ export class GameScene extends Phaser.Scene {
   private stopSweep() {
     if (!this.sweepActive) return;
     this.sweepActive = false;
-    this.sweepAvailable = this.sweepFuelMs > 0;
-    this.sweepCooldownMs = 0;
     this.sweepGraphics?.clear();
     if (this.sweepSound) {
       this.sweepSound.stop();
@@ -857,7 +889,7 @@ export class GameScene extends Phaser.Scene {
       // Bomb lands → auto-detonate at the top of the stack
       if (b.isBomb) {
         b.y = stackTopY;
-        this.explodeAt(b.x, b.y, false);
+        this.explodeAt(b.x, b.y, false, 0);
         return;
       }
       b.y = stackTopY;
