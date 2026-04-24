@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { BlockTicker } from "@/components/ui/BlockTicker";
 import { WalletChip } from "@/components/ui/WalletChip";
+import { ExportWalletButton } from "@/components/ui/ExportWalletButton";
 import { Logo } from "@/components/ui/Logo";
 import { useAuth } from "@/hooks/useAuth";
 
@@ -78,6 +79,13 @@ export default function Home() {
               Blocks descend at MegaETH's actual block rate. Blast them before they stack. Survive the timer, and your score is minted as <span className="mono">$BLOK</span> onchain.
             </p>
           </div>
+
+          {mounted && isAuthenticated && (
+            <div className="text-xs text-moon-white/40 flex items-center gap-4">
+              <span>Your wallet is self-custodial.</span>
+              <ExportWalletButton />
+            </div>
+          )}
         </div>
       </section>
 
