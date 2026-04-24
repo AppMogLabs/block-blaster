@@ -23,19 +23,23 @@ export function getDifficulty(id: number) {
  * Upper bound on a plausible score for a given (mode, elapsedSec).
  *
  * Assumptions:
- * - max 1 destroyed block per spawn
+ * - max 1 destroyed block per spawn (aggregate — bombs can clear many blocks
+ *   per input, but the blocks they destroy are still blocks that were spawned,
+ *   so the per-block score ceiling still applies)
  * - base 10 pts, rare blocks at 1/20 ratio @ 100 pts  → avg ≈ 14.5 pts/block
- * - 3x combo multiplier as the theoretical peak sustained over a full run
- * - 5% slack for timing jitter
+ * - 3x streak multiplier as the theoretical peak sustained over a full run
+ * - Slack bumped to 1.25 to accommodate the new mechanics (bomb AOE + sweep
+ *   beam + streak-to-25 trajectory make sustained-3x measurably more
+ *   achievable than in v1). Nukes do NOT score, so they don't factor in.
  *
- * Total ≈ blocksPerSec × elapsed × 14.5 × 3 × 1.05
+ * Total ≈ blocksPerSec × elapsed × 14.5 × 3 × 1.25
  */
 export function maxPlausibleScore(modeId: number, elapsedSec: number): number {
   const mode = getDifficulty(modeId);
   const capped = Math.min(elapsedSec, mode.durationSec + 5);
   const avgPointsPerBlock = 14.5;
   const peakComboMultiplier = 3;
-  const slack = 1.05;
+  const slack = 1.25;
   return Math.ceil(
     mode.blocksPerSecond * capped * avgPointsPerBlock * peakComboMultiplier * slack
   );

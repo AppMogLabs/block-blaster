@@ -42,6 +42,11 @@ export function GameView() {
   const [sessionError, setSessionError] = useState<string | null>(null);
   const [runKey, setRunKey] = useState(0);
   const [milestoneFlash, setMilestoneFlash] = useState<number>(0); // ticks when multiplier changes up
+  const [streak, setStreak] = useState(0);
+  const [heatLevel, setHeatLevel] = useState(0);
+  const [nukeCharged, setNukeCharged] = useState(false);
+  const [sweepFuel, setSweepFuel] = useState(1); // 0..1
+  const [sweepAvailable, setSweepAvailable] = useState(modeId !== 0);
   const handleRef = useRef<GameCanvasHandle | null>(null);
   const lastMultiplier = useRef(1);
 
@@ -100,6 +105,18 @@ export function GameView() {
   const onTimer = useCallback((r: number) => setRemaining(r), []);
   const onGameWin = useCallback((s: number) => setScreen({ kind: "win", score: s }), []);
   const onGameOver = useCallback((s: number) => setScreen({ kind: "over", score: s }), []);
+  const onStreak = useCallback((s: number, h: number) => {
+    setStreak(s);
+    setHeatLevel(h);
+  }, []);
+  const onNuke = useCallback((charged: boolean) => setNukeCharged(charged), []);
+  const onSweepFuel = useCallback((f: number, a: boolean) => {
+    setSweepFuel(f);
+    setSweepAvailable(a);
+  }, []);
+  const onNukeClick = useCallback(() => {
+    handleRef.current?.triggerNuke();
+  }, []);
 
   const retry = () => {
     setScore(0);
@@ -113,6 +130,11 @@ export function GameView() {
     // and the API correctly rejects it with "session already used".
     setSessionToken(null);
     setSessionError(null);
+    // Reset the new mechanics — streak/heat/nuke/fuel all start fresh.
+    setStreak(0);
+    setHeatLevel(0);
+    setNukeCharged(false);
+    setSweepFuel(1);
     setRunKey((k) => k + 1);
   };
 
@@ -150,6 +172,22 @@ export function GameView() {
               <span className={multiplier > 1 ? "font-bold" : ""}>×{multiplier}</span>
             </span>
           </div>
+          <div
+            className={`mono transition-colors ${
+              heatLevel >= 4
+                ? "text-[#dc1a1a]"
+                : heatLevel >= 3
+                  ? "text-[#ff6b1a]"
+                  : heatLevel >= 2
+                    ? "text-magenta"
+                    : heatLevel >= 1
+                      ? "text-pink"
+                      : ""
+            }`}
+          >
+            <span className="text-moon-white/50 uppercase text-[10px]">streak</span>{" "}
+            <span className="tabular-nums font-bold">{streak}</span>
+          </div>
           <div className="mono">
             <span className="text-moon-white/50 uppercase text-[10px]">score</span>{" "}
             <span className="tabular-nums text-moon-white font-bold">{score}</span>
@@ -175,6 +213,9 @@ export function GameView() {
               onGameWin={onGameWin}
               onGameOver={onGameOver}
               onReady={onReady}
+              onStreak={onStreak}
+              onNuke={onNuke}
+              onSweepFuel={onSweepFuel}
               registerHandle={(h) => (handleRef.current = h)}
             />
           </GameErrorBoundary>
@@ -182,12 +223,16 @@ export function GameView() {
 
         {screen.kind === "loading" && <LoadingOverlay />}
         {screen.kind === "playing" && (
-          <button
-            onClick={() => handleRef.current?.bankEarly()}
-            className="absolute bottom-6 left-1/2 -translate-x-1/2 btn-secondary text-xs"
-          >
-            bank early
-          </button>
+          <>
+            <button
+              onClick={() => handleRef.current?.bankEarly()}
+              className="absolute bottom-10 left-1/2 -translate-x-1/2 btn-secondary text-xs"
+            >
+              bank early
+            </button>
+            {sweepAvailable && <SweepFuelBar fuel={sweepFuel} />}
+            <NukeButton charged={nukeCharged} onActivate={onNukeClick} />
+          </>
         )}
         {screen.kind === "win" && (
           <SurvivedOverlay
@@ -212,6 +257,48 @@ export function GameView() {
         )}
       </div>
     </main>
+  );
+}
+
+function NukeButton({
+  charged,
+  onActivate,
+}: {
+  charged: boolean;
+  onActivate: () => void;
+}) {
+  return (
+    <button
+      onClick={onActivate}
+      disabled={!charged}
+      aria-label={charged ? "Activate nuke" : "Nuke not yet charged — hit a 25 streak"}
+      className={`absolute top-4 right-4 w-14 h-14 rounded-full border-2 flex items-center justify-center mono text-[10px] uppercase transition-all ${
+        charged
+          ? "border-[#ffd26d] bg-[#ffd26d]/10 text-[#ffd26d] shadow-[0_0_24px_rgba(255,210,109,0.55)] animate-[milestonePop_1.4s_ease-in-out_infinite] cursor-pointer"
+          : "border-moon-white/15 text-moon-white/25 cursor-not-allowed"
+      }`}
+    >
+      {charged ? "NUKE" : "—"}
+    </button>
+  );
+}
+
+function SweepFuelBar({ fuel }: { fuel: number }) {
+  const pct = Math.max(0, Math.min(1, fuel)) * 100;
+  return (
+    <div
+      className="absolute bottom-2 left-1/2 -translate-x-1/2 w-48 h-1 rounded-full overflow-hidden bg-moon-white/10"
+      aria-label={`Sweep fuel ${pct.toFixed(0)}%`}
+    >
+      <div
+        className="h-full rounded-full transition-[width] duration-100"
+        style={{
+          width: `${pct}%`,
+          background: pct > 30 ? "#6DD0A9" : "#F5AF94",
+          boxShadow: pct > 0 ? "0 0 8px rgba(109, 208, 169, 0.6)" : "none",
+        }}
+      />
+    </div>
   );
 }
 

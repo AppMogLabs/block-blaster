@@ -40,7 +40,7 @@ function maxPlausibleScore(modeId: number, elapsedSec: number): number {
   const mode = DIFFICULTY.find((m) => m.id === modeId);
   if (!mode) throw new Error(`bad mode ${modeId}`);
   const capped = Math.min(elapsedSec, mode.durationSec + 5);
-  return Math.ceil(mode.blocksPerSecond * capped * 14.5 * 3 * 1.05);
+  return Math.ceil(mode.blocksPerSecond * capped * 14.5 * 3 * 1.25);
 }
 
 describe("Score drift — GameScene vs difficulty.ts", () => {
@@ -57,21 +57,23 @@ describe("Score drift — GameScene vs difficulty.ts", () => {
     expect(scene).to.match(/blockNumberCounter\s*%\s*20\s*===\s*0/);
   });
 
-  it("combo multiplier bands still match (5→2x, 10→3x)", () => {
-    // `this.combo >= 10 ? 3 : this.combo >= 5 ? 2 : 1`
-    // appears twice (onBlockDestroyed + emitCombo) — use global flag
+  it("streak multiplier bands still match (5→2x, 10→3x)", () => {
+    // `this.streak >= 10 ? 3 : this.streak >= 5 ? 2 : 1`
+    // appears in scoreDestroyed + emitCombo — use global flag
     const matches = scene.match(
-      /this\.combo\s*>=\s*10\s*\?\s*3\s*:\s*this\.combo\s*>=\s*5\s*\?\s*2\s*:\s*1/g
+      /this\.streak\s*>=\s*10\s*\?\s*3\s*:\s*this\.streak\s*>=\s*5\s*\?\s*2\s*:\s*1/g
     );
     expect(matches, "multiplier formula missing or drifted").to.not.be.null;
     expect(matches!.length).to.be.greaterThanOrEqual(1);
   });
 
-  it("plausibility formula constants are unchanged", () => {
+  it("plausibility formula constants match the expected values", () => {
     // If these change, the drift test needs an update alongside the formula.
+    // Slack was raised from 1.05 → 1.25 when bombs/nuke/sweep landed, to
+    // reflect sustained-3x becoming measurably more achievable.
     expect(difficulty).to.match(/avgPointsPerBlock\s*=\s*14\.5/);
     expect(difficulty).to.match(/peakComboMultiplier\s*=\s*3/);
-    expect(difficulty).to.match(/slack\s*=\s*1\.05/);
+    expect(difficulty).to.match(/slack\s*=\s*1\.25/);
   });
 
   it("avgPointsPerBlock is consistent with 1/20 rare ratio", () => {

@@ -6,6 +6,7 @@ import { GAME_EVENTS } from "@/game/config/events";
 
 export type GameCanvasHandle = {
   bankEarly: () => void;
+  triggerNuke: () => void;
   destroy: () => void;
 };
 
@@ -20,6 +21,9 @@ export type GameCanvasProps = {
   onGameWin: (score: number) => void;
   onGameOver: (score: number) => void;
   onReady?: () => void;
+  onStreak?: (streak: number, heatLevel: number) => void;
+  onNuke?: (charged: boolean) => void;
+  onSweepFuel?: (fuel: number, available: boolean) => void;
   registerHandle?: (h: GameCanvasHandle | null) => void;
 };
 
@@ -52,6 +56,15 @@ export function GameCanvas(props: GameCanvasProps) {
       bus.on(GAME_EVENTS.GAME_WIN, ({ score }: { score: number }) => cbRef.current.onGameWin(score));
       bus.on(GAME_EVENTS.GAME_OVER, ({ score }: { score: number }) => cbRef.current.onGameOver(score));
       bus.on(GAME_EVENTS.READY, () => cbRef.current.onReady?.());
+      bus.on(GAME_EVENTS.STREAK, (p: { streak: number; heatLevel: number }) =>
+        cbRef.current.onStreak?.(p.streak, p.heatLevel)
+      );
+      bus.on(GAME_EVENTS.NUKE, (p: { charged: boolean }) =>
+        cbRef.current.onNuke?.(p.charged)
+      );
+      bus.on(GAME_EVENTS.SWEEP_FUEL, (p: { fuel: number; available: boolean }) =>
+        cbRef.current.onSweepFuel?.(p.fuel, p.available)
+      );
 
       const width = hostRef.current.clientWidth;
       const height = hostRef.current.clientHeight;
@@ -83,7 +96,7 @@ export function GameCanvas(props: GameCanvasProps) {
           startingBlockNumber: props.startingBlockNumber,
         };
         game.scene.start("GameScene", sceneConfig);
-        // Grab a ref for bankEarly()
+        // Grab a ref for bankEarly() + triggerNuke()
         const scene = game.scene.getScene("GameScene");
         sceneRef.current = scene ?? null;
       });
@@ -92,6 +105,10 @@ export function GameCanvas(props: GameCanvasProps) {
         bankEarly: () => {
           const scene = sceneRef.current as unknown as { bankEarly?: () => void } | null;
           scene?.bankEarly?.();
+        },
+        triggerNuke: () => {
+          const scene = sceneRef.current as unknown as { triggerNuke?: () => void } | null;
+          scene?.triggerNuke?.();
         },
         destroy: () => game.destroy(true),
       });
