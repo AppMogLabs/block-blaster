@@ -222,12 +222,12 @@ export class GameScene extends Phaser.Scene {
     if (!this.cache.audio.has(SFX.MUSIC)) return;
     this.killMusic();
     try {
-      this.music = this.sound.add(SFX.MUSIC, { loop: true, volume: 0.2 });
+      this.music = this.sound.add(SFX.MUSIC, { loop: true, volume: 0.4 });
       const m = this.music as Phaser.Sound.BaseSound & { volume?: number };
       if ("volume" in m) m.volume = 0;
       this.music.play();
       // Fade in so the transition from silence isn't a hard cut.
-      this.tweens.add({ targets: m, volume: 0.2, duration: 600 });
+      this.tweens.add({ targets: m, volume: 0.4, duration: 600 });
     } catch {
       /* no-op */
     }

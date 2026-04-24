@@ -32,7 +32,7 @@ export const SOUND_FILES: Record<SfxKey, { src: string; volume: number }> = {
   [SFX.TAP]: { src: "/sounds/finish_tap.wav", volume: 0.5 },
   // Background music — the previously-used finish_success track is more
   // dynamic than the old background loop and fits gameplay better.
-  [SFX.MUSIC]: { src: "/sounds/finish_success.mp3", volume: 0.2 },
+  [SFX.MUSIC]: { src: "/sounds/finish_success.mp3", volume: 0.4 },
   // Bomb explosion — reuse the destroyed SFX at lower pitch for now.
   [SFX.BOMB]: { src: "/sounds/photo_destroyed.wav", volume: 0.7 },
   // Nuke — no dedicated sound; the cumulative bomb/explosion SFX covers it.
