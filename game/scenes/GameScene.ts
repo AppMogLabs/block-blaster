@@ -783,17 +783,18 @@ export class GameScene extends Phaser.Scene {
   // ─── Nuke ────────────────────────────────────────────────────────────────
 
   public triggerNuke() {
-    if (this.state !== "running" || !this.nukeCharged) return;
+    // Only bail if we've never charged — a late click right as the game
+    // ends should still wipe the screen rather than silently no-op. The
+    // `nukeCharged` guard keeps double-click safe.
+    if (!this.nukeCharged) return;
     this.nukeCharged = false;
     this.cfg.bus.emit(GAME_EVENTS.NUKE, { charged: false, progress: 0 });
 
-    // No dedicated nuke music — the bomb SFX already fires for each caught
-    // block's explosion, which is all the audio feedback the nuke needs.
-    // Adding another sound here stacked with the triumphant music caused
-    // multi-layer overlap when players fired multiple nukes per run.
     this.cameras.main.shake(600, 0.05);
 
-    // Full-screen white flash
+    // Full-screen white flash. Hold at full opacity for 120ms before
+    // fading so on Real-time (100 bps respawning behind the flash) the
+    // "nuke just happened" beat is unambiguous.
     const flash = this.add
       .rectangle(
         this.scale.width / 2,
@@ -807,12 +808,19 @@ export class GameScene extends Phaser.Scene {
     this.tweens.add({
       targets: flash,
       alpha: 0,
-      duration: 600,
+      duration: 700,
+      delay: 120,
       ease: "Cubic.out",
       onComplete: () => flash.destroy(),
     });
 
-    // Particle sheet across the entire canvas
+    // Big "NUKE" text in the middle of the flash so players in chaotic
+    // modes can't miss that it actually fired.
+    this.flashText("NUKE", 0xffd26d);
+
+    // Particle sheet — 50 is plenty against the flash + shake. 80 was
+    // a measurable hitch on Real-time where the game loop is already
+    // spawning 100 blocks/sec.
     const sparkKey = this.textures.exists("spark") ? "spark" : "__DEFAULT";
     const burst = this.add.particles(this.scale.width / 2, this.scale.height / 2, sparkKey, {
       lifespan: { min: 400, max: 900 },
@@ -821,12 +829,12 @@ export class GameScene extends Phaser.Scene {
       scale: { start: sparkKey === "spark" ? 1.1 : 2.2, end: 0 },
       alpha: { start: 1, end: 0 },
       rotate: { start: 0, end: 360 },
-      quantity: 80,
+      quantity: 50,
       tint: [0xffffff, 0xffd26d, 0xff9d3a, 0xff3a3a],
       blendMode: Phaser.BlendModes.ADD,
       emitting: false,
     });
-    burst.explode(80);
+    burst.explode(50);
     this.time.delayedCall(1100, () => burst.destroy());
 
     // Destroy all descending blocks + all stacked blocks. Nuke is a survival
