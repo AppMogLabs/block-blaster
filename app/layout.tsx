@@ -3,6 +3,7 @@ import "./globals.css";
 import { Providers } from "@/components/providers/Providers";
 import { BackgroundLogo } from "@/components/BackgroundLogo";
 import { ApproveBanner } from "@/components/ApproveBanner";
+import { Analytics } from "@vercel/analytics/next";
 
 export const metadata: Metadata = {
   title: "Block Blaster — The chain never stops",
@@ -42,6 +43,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
           <ApproveBanner />
           {children}
         </Providers>
+        <Analytics />
       </body>
     </html>
   );
