@@ -21,17 +21,18 @@ export type RateLimit = {
 
 type MemEntry = { count: number; windowStart: number };
 
-function memoryLimiter(limit: number, windowSec: number): RateLimit {
+function memoryLimiter(name: string, limit: number, windowSec: number): RateLimit {
   const m: Map<string, MemEntry> =
     (globalThis as { __bbRateLimit?: Map<string, MemEntry> }).__bbRateLimit ??
     ((globalThis as { __bbRateLimit?: Map<string, MemEntry> }).__bbRateLimit =
       new Map());
   return {
     async check(key: string) {
+      const namespacedKey = `${name}:${key}`;
       const now = Date.now();
-      const existing = m.get(key);
+      const existing = m.get(namespacedKey);
       if (!existing || now - existing.windowStart >= windowSec * 1000) {
-        m.set(key, { count: 1, windowStart: now });
+        m.set(namespacedKey, { count: 1, windowStart: now });
         return { ok: true };
       }
       if (existing.count >= limit) {
@@ -47,6 +48,7 @@ function memoryLimiter(limit: number, windowSec: number): RateLimit {
 }
 
 function kvLimiter(
+  name: string,
   url: string,
   token: string,
   limit: number,
@@ -58,7 +60,11 @@ function kvLimiter(
   };
   return {
     async check(key: string) {
-      const k = `bb:rl:${key}`;
+      // Namespace the KV key per-limiter so mintRateLimit's counter
+      // doesn't share state with wagerRateLimit / sessionRateLimit /
+      // faucetRateLimit — previously all four incremented the same key
+      // and any hot path would starve the others.
+      const k = `bb:rl:${name}:${key}`;
       try {
         // Upstash REST pipeline: [INCR key, EXPIRE key windowSec NX]
         // Returns [incrResult, expireResult] — if INCR returns 1, we just created it, so EXPIRE sets TTL.
@@ -103,16 +109,23 @@ function kvLimiter(
   };
 }
 
-export function createRateLimit(opts: { limit: number; windowSec: number }): RateLimit {
+export function createRateLimit(opts: {
+  /** Unique name — becomes part of the KV key to isolate from other limiters. */
+  name: string;
+  limit: number;
+  windowSec: number;
+}): RateLimit {
   const url = process.env.KV_REST_API_URL;
   const token = process.env.KV_REST_API_TOKEN;
-  if (url && token) return kvLimiter(url, token, opts.limit, opts.windowSec);
+  if (url && token) {
+    return kvLimiter(opts.name, url, token, opts.limit, opts.windowSec);
+  }
   if (process.env.NODE_ENV === "production") {
     log.warn("no_kv_in_prod", {
       hint: "Set KV_REST_API_URL + KV_REST_API_TOKEN to enable distributed rate limiting.",
     });
   }
-  return memoryLimiter(opts.limit, opts.windowSec);
+  return memoryLimiter(opts.name, opts.limit, opts.windowSec);
 }
 
 /** Pre-configured limiters for the endpoints that need them. */
@@ -122,36 +135,48 @@ let _wagerLimit: RateLimit | null = null;
 let _faucetLimit: RateLimit | null = null;
 
 export function sessionRateLimit(): RateLimit {
-  return (_sessionLimit ??= createRateLimit({ limit: 12, windowSec: 60 }));
+  return (_sessionLimit ??= createRateLimit({
+    name: "session",
+    limit: 12,
+    windowSec: 60,
+  }));
 }
 
 /**
  * Covers the hot in-game spend path (bank / nuke / sweep-reload / game-end).
- * Raised from 10/min to 30/min because a single active run can legitimately
- * fire: ~5 banks + 1-2 nukes + a reload or two + game-end. 10 was blocking
- * players mid-minute on reasonable activity.
+ * A single active run can legitimately fire: ~5 banks + 1-2 nukes + a
+ * reload or two + game-end.
  */
 export function mintRateLimit(): RateLimit {
-  return (_mintLimit ??= createRateLimit({ limit: 30, windowSec: 60 }));
+  return (_mintLimit ??= createRateLimit({
+    name: "mint",
+    limit: 30,
+    windowSec: 60,
+  }));
 }
 
 /**
- * Wagers happen pre-game, at most a few times per minute even with
- * aggressive retry. Separate limiter so a player mid-run who hits the
- * in-game cap doesn't then fail their next wager.
+ * Wagers happen pre-game, at most a few times per minute. Isolated key
+ * so in-game action doesn't starve out the wager endpoint.
  */
 export function wagerRateLimit(): RateLimit {
-  return (_wagerLimit ??= createRateLimit({ limit: 6, windowSec: 60 }));
+  return (_wagerLimit ??= createRateLimit({
+    name: "wager",
+    limit: 6,
+    windowSec: 60,
+  }));
 }
 
 /**
- * Faucet drip — 1 successful drip per wallet per 24 hours. The drip
- * endpoint itself ALSO checks the wallet's on-chain balance and skips if
- * already funded, so this rate-limit only needs to prevent rapid repeat
- * drip attempts for abusive signups.
+ * Faucet drip — 1 successful drip per wallet per 24 hours. Endpoint also
+ * checks on-chain balance and skips if already funded.
  */
 export function faucetRateLimit(): RateLimit {
-  return (_faucetLimit ??= createRateLimit({ limit: 1, windowSec: 24 * 60 * 60 }));
+  return (_faucetLimit ??= createRateLimit({
+    name: "faucet",
+    limit: 1,
+    windowSec: 24 * 60 * 60,
+  }));
 }
 
 /** Test hook. */

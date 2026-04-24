@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useAuth } from "@/hooks/useAuth";
 import { useBlok } from "@/hooks/useBlok";
 import { useToast } from "@/components/ui/Toast";
@@ -20,16 +20,44 @@ export function ApproveBanner() {
   const { approved, ready, approve, refresh } = useBlok(walletAddress);
   const toast = useToast();
   const [submitting, setSubmitting] = useState(false);
+  // Settle delay: the hook briefly has `ready: true, approved: false`
+  // immediately after a fresh /api/balance fetch returns 0 allowance.
+  // If the user already approved, a subsequent refresh would flip
+  // approved true quickly. We wait 500ms after `ready` becomes true
+  // before showing the banner so a stable "not approved" state doesn't
+  // flash up for users who actually are approved.
+  const [showableAt, setShowableAt] = useState<number | null>(null);
+  const [tick, setTick] = useState(0);
 
-  // Gate: only show when signed in, state has loaded, and not already approved.
-  // Also hide if contracts aren't configured (pre-deploy / local dev).
+  useEffect(() => {
+    if (!ready || approved) {
+      setShowableAt(null);
+      return;
+    }
+    // Schedule a "settle" deadline if we don't have one yet.
+    if (showableAt === null) {
+      const deadline = Date.now() + 500;
+      setShowableAt(deadline);
+      const t = setTimeout(() => setTick((n) => n + 1), 520);
+      return () => clearTimeout(t);
+    }
+  }, [ready, approved, showableAt]);
+
+  const settled = showableAt !== null && Date.now() >= showableAt;
+  // Gate: only show when signed in, state has loaded + settled,
+  // and not already approved. Also hide if contracts aren't
+  // configured (pre-deploy / local dev).
   if (
     !isAuthenticated ||
     !walletAddress ||
     !ready ||
     approved ||
+    !settled ||
     !publicConfig.gameRewardsAddress
   ) {
+    // `tick` dependency keeps the settle timer re-rendering properly
+    // but isn't used for any content decisions.
+    void tick;
     return null;
   }
 
