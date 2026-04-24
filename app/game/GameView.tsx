@@ -12,6 +12,56 @@ import { MuteToggle } from "@/components/ui/MuteToggle";
 import { pickWinPhrase, pickDiePhrase } from "@/lib/endGameMessaging";
 import { GameErrorBoundary } from "@/components/game/GameErrorBoundary";
 
+type MintArgs = {
+  token: string;
+  score: number;
+  walletAddress: string;
+  modeId: number;
+};
+
+/**
+ * Mint with one-shot recovery on "session already used". Rare race condition:
+ * if retry() fires a fresh session fetch but the old token got sent anyway
+ * (e.g. a stale overlay close), the server correctly rejects as already used.
+ * We refetch a new session for the same wallet+mode and try once more. If
+ * the second attempt also fails, we surface the original error to the UI.
+ */
+async function mintWithRecovery(args: MintArgs): Promise<{
+  txHash: string | null;
+  leaderboardTxHash?: string | null;
+}> {
+  const attempt = (token: string) =>
+    fetch("/api/mint", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ ...args, token }),
+    });
+
+  let res = await attempt(args.token);
+  if (res.ok) return res.json();
+
+  const data = await res.json().catch(() => ({}));
+  const isReplay = typeof data?.error === "string" && /already used/i.test(data.error);
+  if (!isReplay) throw new Error(data?.error ?? `mint failed (${res.status})`);
+
+  // Refetch a fresh session and retry once.
+  const sessRes = await fetch("/api/session", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ walletAddress: args.walletAddress, modeId: args.modeId }),
+  });
+  if (!sessRes.ok) {
+    const sErr = await sessRes.json().catch(() => ({}));
+    throw new Error(sErr?.error ?? `session refetch failed (${sessRes.status})`);
+  }
+  const { token: freshToken } = await sessRes.json();
+
+  res = await attempt(freshToken);
+  if (res.ok) return res.json();
+  const retryData = await res.json().catch(() => ({}));
+  throw new Error(retryData?.error ?? `mint failed after refetch (${res.status})`);
+}
+
 // Phaser + canvas → client-only
 const GameCanvas = dynamic(
   () => import("@/components/game/GameCanvas").then((m) => m.GameCanvas),
@@ -421,13 +471,7 @@ function SurvivedOverlay({
     setMinting(true);
     setError(null);
     try {
-      const res = await fetch("/api/mint", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ token, score, walletAddress, modeId }),
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error ?? "mint failed");
+      const data = await mintWithRecovery({ token, score, walletAddress, modeId });
       setTxHash(data.txHash);
     } catch (e) {
       setError(e instanceof Error ? e.message : "mint error");
@@ -545,13 +589,7 @@ function DiedOverlay({
     setMinting(true);
     setError(null);
     try {
-      const res = await fetch("/api/mint", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ token, score, walletAddress, modeId }),
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error ?? "mint failed");
+      const data = await mintWithRecovery({ token, score, walletAddress, modeId });
       setTxHash(data.txHash);
     } catch (e) {
       setError(e instanceof Error ? e.message : "mint error");

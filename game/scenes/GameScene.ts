@@ -24,9 +24,20 @@ export type GameSceneInit = {
 
 export type HeatLevel = 0 | 1 | 2 | 3 | 4 | 5;
 
-/** Streak thresholds map 1:1 to heat levels. Reaching 25 charges the nuke. */
+/** Streak thresholds map 1:1 to heat levels (25 is heat tier 5). */
 const HEAT_THRESHOLDS: readonly number[] = [5, 10, 15, 20, 25];
-const NUKE_STREAK = 25;
+/**
+ * Cumulative blocks destroyed to charge a nuke — per mode, so Easy players
+ * can earn one in a clean run without grinding, while Real-time awards
+ * multiple nukes per run. Charge does NOT reset on bank or miss, only on
+ * nuke use, so banking early doesn't kill progress toward the nuke.
+ */
+const NUKE_KILL_THRESHOLD: Record<0 | 1 | 2 | 3, number> = {
+  0: 30, // Easy
+  1: 60, // Medium
+  2: 100, // Hard
+  3: 150, // Real-time
+};
 const SWEEP_FUEL_MAX_MS = 3000;
 const SWEEP_RECHARGE_MS = 3000;
 const SWEEP_HOLD_THRESHOLD_MS = 150;
@@ -91,6 +102,9 @@ export class GameScene extends Phaser.Scene {
   private heatLayer?: Phaser.GameObjects.Graphics;
   private vignetteLayer?: Phaser.GameObjects.Graphics;
   private nukeCharged = false;
+  /** Cumulative blocks destroyed since last nuke use. Never reset by bank
+   *  or miss — only by triggerNuke(). Drives nuke charging. */
+  private nukeProgress = 0;
 
   // HUD emit throttle — sweep can destroy ~10 blocks per tick; emitting a
   // SCORE + COMBO + STREAK event for each one floods React with state
@@ -429,12 +443,22 @@ export class GameScene extends Phaser.Scene {
     // Points land in the "pending" pot — at risk until the player banks.
     this.pending += base * multiplier;
 
-    // Heat milestones
+    // Heat milestones — streak-based (resets on bank/miss)
     if (HEAT_THRESHOLDS.includes(this.streak)) {
       this.sfx(SFX.STREAK, { volume: 0.7 });
-      if (this.streak === NUKE_STREAK && !this.nukeCharged) {
+    }
+
+    // Nuke charging — cumulative, not streak-based. A player who banks
+    // frequently (smart play) still earns nukes at the same rate.
+    if (!this.nukeCharged) {
+      this.nukeProgress += 1;
+      const threshold = NUKE_KILL_THRESHOLD[this.cfg.modeId];
+      if (this.nukeProgress >= threshold) {
         this.nukeCharged = true;
+        this.nukeProgress = 0;
         this.cfg.bus.emit(GAME_EVENTS.NUKE, { charged: true });
+        this.sfx(SFX.STREAK, { volume: 0.9, rate: 1.3 });
+        this.flashText("NUKE READY", 0xffd26d);
       }
     }
 
@@ -644,12 +668,10 @@ export class GameScene extends Phaser.Scene {
       this.tweens.add({ targets: m, rate, duration: 300 });
     }
 
-    // "UNSTOPPABLE" flash at heat 4 (streak 20+)
+    // "UNSTOPPABLE" flash at heat 4 (streak 20+). Nuke charging is now
+    // cumulative-kill-based, announced separately by scoreDestroyed().
     if (next === 4) {
       this.flashText("UNSTOPPABLE", HEAT_VIGNETTE);
-    }
-    if (next === 5 && this.nukeCharged) {
-      this.flashText("NUKE READY", 0xffd26d);
     }
   }
 
