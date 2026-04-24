@@ -83,7 +83,8 @@ export async function POST(req: NextRequest) {
 
   try {
     const tx = await gameRewards.spendSweepReload(walletAddress);
-    log.info("reload_submitted", {
+    await tx.wait();
+    log.info("reload_confirmed", {
       wallet: shortWallet(walletAddress),
       modeId,
       txHash: tx.hash,

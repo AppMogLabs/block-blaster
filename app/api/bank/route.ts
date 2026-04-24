@@ -123,8 +123,13 @@ export async function POST(req: NextRequest) {
 
   try {
     // Mint the delta first — this is the BLOK the player actually receives.
+    // IMPORTANT: await tx.wait() so the returned response reflects a
+    // confirmed on-chain balance. Without this, the client's follow-up
+    // balance read can race the tx and show the pre-mint number.
     const mintTx = await blok.mint(walletAddress, amount);
-    // Submit the cumulative (not delta) as the leaderboard score.
+    await mintTx.wait();
+    // Submit the cumulative (not delta) as the leaderboard score. We DON'T
+    // wait on this one — it's a non-critical side effect and adds latency.
     const scoreTx = await leaderboard.submitScore(walletAddress, newTotal, modeId);
     // Record the bank for PB + wager settlement. Uses cumulative newTotal
     // so PB tracks the RUN total, not a single bank.

@@ -336,7 +336,12 @@ export function GameView() {
             <span className="text-moon-white/50 uppercase text-[10px]">streak</span>{" "}
             <span className="tabular-nums font-bold">{streak}</span>
           </div>
-          {isAuthenticated && blok.ready ? (
+          {isAuthenticated ? (
+            // Live on-chain $BLOK balance. `blok.balance` starts at 0 while
+            // the first /api/balance call is in flight; the optimistic-
+            // update path in useBlok bumps it immediately on bank/nuke
+            // regardless of readiness so the number tracks player actions
+            // without waiting for the reconcile read.
             <div
               key={`bal-${bankFlash}`}
               className="mono transition-transform animate-[milestonePop_0.45s_ease-out]"
@@ -346,6 +351,8 @@ export function GameView() {
               <span className="tabular-nums text-mint font-bold">{blok.balance}</span>
             </div>
           ) : (
+            // Guest fallback: local "banked this run" counter since a
+            // guest has no wallet to hold minted $BLOK.
             <div
               key={`bank-${bankFlash}`}
               className="mono transition-transform animate-[milestonePop_0.45s_ease-out]"

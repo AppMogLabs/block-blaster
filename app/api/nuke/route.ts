@@ -82,7 +82,11 @@ export async function POST(req: NextRequest) {
 
   try {
     const tx = await gameRewards.spendNuke(walletAddress);
-    log.info("nuke_submitted", {
+    // Await confirmation so the client's subsequent balance read reflects
+    // the burn. Without this the balance-reconcile race can reset an
+    // optimistic -100 back to the pre-burn balance.
+    await tx.wait();
+    log.info("nuke_confirmed", {
       wallet: shortWallet(walletAddress),
       modeId,
       txHash: tx.hash,
