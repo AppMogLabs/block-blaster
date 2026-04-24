@@ -385,61 +385,38 @@ function NukeButton({
   progress: number;
   onActivate: () => void;
 }) {
-  // SVG ring — a conic-gradient border would be simpler but isn't well
-  // supported on iOS. SVG circumference trick is universal.
-  const size = 56;
-  const stroke = 3;
-  const r = (size - stroke) / 2;
-  const circumference = 2 * Math.PI * r;
   const clampedProgress = Math.max(0, Math.min(1, progress));
-  const offset = circumference * (1 - clampedProgress);
+  const pct = Math.round(clampedProgress * 100);
+
+  // Outer ring uses a conic-gradient for the fill arc; an inner circle
+  // masks the middle so only the ring shows. iOS Safari 12.5+ supports
+  // conic-gradient; this is simpler + more reliable than the SVG approach.
+  const ringFill = charged ? "#ffd26d" : "#90D79F";
+  const ringTrack = charged ? "#ffd26d" : "rgba(236,232,232,0.18)";
+  const ringAngle = charged ? 360 : clampedProgress * 360;
 
   return (
     <button
       onClick={onActivate}
       disabled={!charged}
-      aria-label={
+      aria-label={charged ? "Activate nuke" : `Nuke charging — ${pct}%`}
+      className={`absolute top-4 right-4 w-14 h-14 rounded-full p-[3px] transition-all ${
         charged
-          ? "Activate nuke"
-          : `Nuke charging — ${Math.round(clampedProgress * 100)}%`
-      }
-      className={`absolute top-4 right-4 w-14 h-14 rounded-full flex items-center justify-center mono text-[10px] uppercase transition-all ${
-        charged
-          ? "bg-[#ffd26d]/10 text-[#ffd26d] shadow-[0_0_24px_rgba(255,210,109,0.55)] animate-[milestonePop_1.4s_ease-in-out_infinite] cursor-pointer"
-          : "bg-moon-white/5 text-moon-white/35 cursor-not-allowed"
+          ? "shadow-[0_0_24px_rgba(255,210,109,0.55)] animate-[milestonePop_1.4s_ease-in-out_infinite] cursor-pointer"
+          : "cursor-not-allowed"
       }`}
+      style={{
+        background: `conic-gradient(${ringFill} ${ringAngle}deg, ${ringTrack} ${ringAngle}deg 360deg)`,
+      }}
     >
-      <svg
-        viewBox={`0 0 ${size} ${size}`}
-        className="absolute inset-0 -rotate-90"
-        aria-hidden="true"
+      <span
+        className={`w-full h-full rounded-full flex items-center justify-center mono text-[10px] uppercase ${
+          charged
+            ? "bg-night-sky text-[#ffd26d] font-bold"
+            : "bg-night-sky text-moon-white/70"
+        }`}
       >
-        {/* Background ring */}
-        <circle
-          cx={size / 2}
-          cy={size / 2}
-          r={r}
-          fill="none"
-          stroke={charged ? "#ffd26d" : "rgba(236,232,232,0.15)"}
-          strokeWidth={stroke}
-        />
-        {/* Progress ring (hidden when already charged) */}
-        {!charged && clampedProgress > 0 && (
-          <circle
-            cx={size / 2}
-            cy={size / 2}
-            r={r}
-            fill="none"
-            stroke="#90D79F"
-            strokeWidth={stroke}
-            strokeDasharray={circumference}
-            strokeDashoffset={offset}
-            strokeLinecap="round"
-          />
-        )}
-      </svg>
-      <span className="relative z-10 tabular-nums">
-        {charged ? "NUKE" : `${Math.round(clampedProgress * 100)}%`}
+        <span className="tabular-nums">{charged ? "NUKE" : `${pct}%`}</span>
       </span>
     </button>
   );
