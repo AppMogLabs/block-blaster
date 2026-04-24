@@ -41,4 +41,13 @@ export const GAMEREWARDS_ABI = [
   "event WagerWon(address indexed player, uint8 indexed mode, uint256 amount, uint256 score)",
   "event WagerLost(address indexed player, uint8 indexed mode, uint256 amount, uint256 score)",
   "event PersonalBestUpdated(address indexed player, uint8 indexed mode, uint256 score)",
+  // Custom error definitions — without these, ethers can't decode reverts
+  // and surfaces them as "missing revert data" on estimateGas failures.
+  "error BadMode()",
+  "error BadTier()",
+  "error WagerActive()",
+  "error NoWager()",
+  "error WagerModeMismatch()",
+  "error NoPersonalBest()",
+  "error ZeroPlayer()",
 ] as const;

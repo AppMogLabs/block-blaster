@@ -52,7 +52,7 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  const { gameRewards } = getChain();
+  const { gameRewards, blok } = getChain();
   if (!gameRewards) {
     return NextResponse.json(
       { error: "GameRewards not configured on server" },
@@ -60,9 +60,57 @@ export async function POST(req: NextRequest) {
     );
   }
 
+  // Pre-flight checks so the failure mode is a clear API error instead of
+  // an ethers CALL_EXCEPTION. All three of these would also revert in the
+  // contract, but clearer messages help the UI.
+  try {
+    const pb: bigint = await gameRewards.personalBest(walletAddress, modeId);
+    if (pb === 0n) {
+      return NextResponse.json(
+        { error: "play this difficulty once before you can wager on it" },
+        { status: 400 }
+      );
+    }
+    const [existingAmt] = (await gameRewards.activeWager(walletAddress)) as [
+      bigint,
+      bigint,
+    ];
+    if (existingAmt > 0n) {
+      return NextResponse.json(
+        { error: "a wager is already active — finish your run first" },
+        { status: 400 }
+      );
+    }
+    const balance: bigint = await blok.balanceOf(walletAddress);
+    if (balance < BigInt(amount)) {
+      return NextResponse.json(
+        { error: `insufficient $BLOK (have ${balance}, need ${amount})` },
+        { status: 400 }
+      );
+    }
+    const allowance: bigint = await blok.allowance(
+      walletAddress,
+      await gameRewards.getAddress()
+    );
+    if (allowance < BigInt(amount)) {
+      return NextResponse.json(
+        { error: "approve $BLOK first — allowance too low" },
+        { status: 400 }
+      );
+    }
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : "rpc error";
+    log.error("wager_precheck_failed", {
+      wallet: shortWallet(walletAddress),
+      error: msg,
+    });
+    return NextResponse.json({ error: `pre-check: ${msg}` }, { status: 500 });
+  }
+
   try {
     const tx = await gameRewards.placeWager(walletAddress, modeId, amount);
-    log.info("wager_submitted", {
+    await tx.wait();
+    log.info("wager_confirmed", {
       wallet: shortWallet(walletAddress),
       modeId,
       amount,
@@ -78,15 +126,26 @@ export async function POST(req: NextRequest) {
       error: msg,
     });
     const lower = msg.toLowerCase();
+    // Map both text-contains (when ethers decoded a custom error name) and
+    // call_exception (when it couldn't).
     const friendly = lower.includes("nopersonalbest")
       ? "play this difficulty once before you can wager on it"
       : lower.includes("wageractive")
         ? "a wager is already active — finish your run first"
-        : lower.includes("insufficient balance")
-          ? "insufficient $BLOK balance for this tier"
-          : lower.includes("insufficient allowance")
-            ? "approve $BLOK first — allowance too low"
-            : msg;
+        : lower.includes("badtier")
+          ? "amount must be 50, 100, 200, or 500"
+          : lower.includes("badmode")
+            ? "invalid difficulty mode"
+            : lower.includes("insufficient balance") ||
+                lower.includes("erc20insufficientbalance")
+              ? "insufficient $BLOK balance for this tier"
+              : lower.includes("insufficient allowance") ||
+                  lower.includes("erc20insufficientallowance")
+                ? "approve $BLOK first — allowance too low"
+                : lower.includes("call_exception") ||
+                    lower.includes("missing revert data")
+                  ? "wager rejected by contract (PB/wager/balance check)"
+                  : msg;
     return NextResponse.json({ error: friendly }, { status: 400 });
   }
 }
