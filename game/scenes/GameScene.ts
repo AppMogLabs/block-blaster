@@ -1060,11 +1060,23 @@ export class GameScene extends Phaser.Scene {
     // Timer-up (win) auto-banks pending so the player doesn't lose a streak
     // they never had the chance to bank manually. Death (over) forfeits
     // pending — that's the risk/reward core of the game loop.
+    //
+    // CRITICAL: we emit a BANK event for the timer-end auto-bank so the
+    // React layer mints the final pending amount via /api/bank. Without
+    // this emit, the player's last streak is silently moved to the
+    // scene-side `banked` bucket but never actually sent to chain.
     const lostPending = kind === "over" ? this.pending : 0;
     if (kind === "win" && this.pending > 0) {
-      this.banked += this.pending;
+      const justBanked = this.pending;
+      this.banked += justBanked;
+      this.pending = 0;
+      this.cfg.bus.emit(GAME_EVENTS.BANK, {
+        banked: this.banked,
+        justBanked,
+      });
+    } else {
+      this.pending = 0;
     }
-    this.pending = 0;
 
     // Force-flush any pending HUD updates so the overlay reads the final
     // score/combo, not a 50ms-stale value.

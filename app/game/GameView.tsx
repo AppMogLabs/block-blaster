@@ -621,19 +621,7 @@ function SurvivedOverlay({
         <div className="text-lg font-semibold mt-4">{phrase.title}</div>
         <div className="text-moon-white/60 text-sm mt-1">{phrase.sub}</div>
 
-        {txHash ? (
-          <div className="mt-6 space-y-3">
-            <div className="mono text-xs text-mint">✓ minted onchain</div>
-            <a
-              href={`${publicConfig.megaethExplorer}/tx/${txHash}`}
-              target="_blank"
-              rel="noreferrer"
-              className="mono text-xs text-sky underline break-all block"
-            >
-              {txHash}
-            </a>
-          </div>
-        ) : isGuest ? (
+        {isGuest ? (
           <div className="mt-6 space-y-3">
             <div className="text-xs text-moon-white/60">
               Guest scores can't be saved onchain.
@@ -644,28 +632,14 @@ function SurvivedOverlay({
               Sign in with X
             </button>
           </div>
-        ) : signedInButNoSession ? (
-          <div className="mt-6 space-y-3">
-            <div className="text-xs text-rose/80">
-              {sessionError
-                ? `Session API error: ${sessionError}. Check the server logs.`
-                : "This run started before your wallet was ready — no session token was signed. Play another round now."}
-            </div>
-            <button onClick={onRetry} className="btn-primary w-full">
-              Play again
-            </button>
-          </div>
         ) : (
-          <>
-            <button
-              onClick={commit}
-              disabled={minting || !canCommit}
-              className="btn-primary mt-6 w-full disabled:opacity-50"
-            >
-              {minting ? "committing…" : "Commit to chain"}
-            </button>
-            {error && <div className="mono text-xs text-rose mt-2">{error}</div>}
-          </>
+          <div className="mt-6 text-xs text-moon-white/60">
+            All banked points minted to your wallet during the run.
+            <br />
+            Total banked:{" "}
+            <span className="mono text-mint font-bold">{score}</span>{" "}
+            <span className="mono">$BLOK</span>
+          </div>
         )}
 
         <div className="mt-3 flex gap-2 justify-center">
@@ -752,46 +726,25 @@ function DiedOverlay({
         )}
 
         {score > 0 ? (
-          txHash ? (
-            <div className="mt-6 space-y-3">
-              <div className="mono text-xs text-mint">✓ minted onchain</div>
-              <a
-                href={`${publicConfig.megaethExplorer}/tx/${txHash}`}
-                target="_blank"
-                rel="noreferrer"
-                className="mono text-xs text-sky underline break-all block"
-              >
-                {txHash}
-              </a>
-            </div>
-          ) : isGuest ? (
+          isGuest ? (
             <div className="mt-6 space-y-3">
               <div className="text-xs text-moon-white/60">
-                Sign in with X to keep your banked <span className="mono">$BLOK</span>.
+                Sign in with X to keep your banked{" "}
+                <span className="mono">$BLOK</span> next run.
               </div>
               <button onClick={onSignIn} className="btn-primary w-full">
                 Sign in with X
               </button>
             </div>
-          ) : signedInButNoSession ? (
-            <div className="mt-6 text-xs text-rose/80">
-              {sessionError ?? "No session token for this run — try another round."}
-            </div>
           ) : (
-            <>
-              <button
-                onClick={commit}
-                disabled={minting || !canCommit}
-                className="btn-primary mt-6 w-full disabled:opacity-50"
-              >
-                {minting ? "committing…" : "Commit to chain"}
-              </button>
-              {error && <div className="mono text-xs text-rose mt-2">{error}</div>}
-            </>
+            <div className="mt-6 text-xs text-moon-white/60">
+              Already minted to your wallet — {score}{" "}
+              <span className="mono">$BLOK</span> locked in.
+            </div>
           )
         ) : (
           <div className="mt-6 text-xs text-moon-white/50">
-            Nothing banked this run.
+            Nothing banked this run — bank sooner next time.
           </div>
         )}
 
