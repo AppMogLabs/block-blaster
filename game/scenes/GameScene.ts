@@ -206,9 +206,10 @@ export class GameScene extends Phaser.Scene {
     this.startMusic();
     this.emitSweepFuel(true);
     this.cfg.bus.emit(GAME_EVENTS.READY, {});
-
-    // Public API used by GameView for the nuke button.
-    (this as unknown as { triggerNuke?: () => void }).triggerNuke = () => this.triggerNuke();
+    // `triggerNuke` and `bank` are already public class methods — the
+    // GameCanvas handle invokes them directly via `scene.triggerNuke()`.
+    // An earlier assignment replaced the method with a self-referencing
+    // arrow function, causing infinite recursion on nuke activation.
   }
 
   private startMusic() {
