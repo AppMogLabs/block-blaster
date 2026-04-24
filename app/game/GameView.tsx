@@ -190,6 +190,11 @@ export function GameView() {
     setSweepAvailable(a);
   }, []);
   const onNukeClick = useCallback(() => {
+    // eslint-disable-next-line no-console
+    console.log("[nuke] button click", {
+      hasHandle: Boolean(handleRef.current),
+      hasTriggerNuke: typeof handleRef.current?.triggerNuke,
+    });
     handleRef.current?.triggerNuke();
   }, []);
 

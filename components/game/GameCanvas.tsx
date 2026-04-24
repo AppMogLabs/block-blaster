@@ -127,7 +127,14 @@ export function GameCanvas(props: GameCanvasProps) {
           scene?.bank?.();
         },
         triggerNuke: () => {
-          const scene = sceneRef.current as unknown as { triggerNuke?: () => void } | null;
+          const scene = sceneRef.current as unknown as {
+            triggerNuke?: () => void;
+          } | null;
+          // eslint-disable-next-line no-console
+          console.log("[nuke] handle.triggerNuke called", {
+            hasScene: Boolean(scene),
+            triggerType: typeof scene?.triggerNuke,
+          });
           scene?.triggerNuke?.();
         },
         destroy: () => game.destroy(true),

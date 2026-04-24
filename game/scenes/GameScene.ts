@@ -760,6 +760,11 @@ export class GameScene extends Phaser.Scene {
   // ─── Nuke ────────────────────────────────────────────────────────────────
 
   public triggerNuke() {
+    // eslint-disable-next-line no-console
+    console.log("[nuke] scene.triggerNuke entered", {
+      state: this.state,
+      nukeCharged: this.nukeCharged,
+    });
     if (this.state !== "running" || !this.nukeCharged) return;
     this.nukeCharged = false;
     this.cfg.bus.emit(GAME_EVENTS.NUKE, { charged: false, progress: 0 });
