@@ -99,6 +99,36 @@ export function useBlok(walletAddressProp?: string | null): BlokState & Actions 
     refresh();
   }, [refresh]);
 
+  // One-shot faucet drip: hit /api/faucet-drip whenever we have a fresh
+  // wallet. The endpoint is rate-limited + on-chain-balance-gated, so
+  // repeat calls are cheap: already-funded wallets get an immediate
+  // "skipped" response, rate-limited wallets get a 429. We fire and
+  // forget — the response time doesn't gate UX.
+  const drippedFor = useRef<string | null>(null);
+  useEffect(() => {
+    if (!walletAddress) return;
+    if (drippedFor.current === walletAddress) return;
+    drippedFor.current = walletAddress;
+    fetch("/api/faucet-drip", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ walletAddress }),
+    })
+      .then(async (r) => {
+        // If we actually got a drip, refresh — the new ETH isn't the same
+        // as BLOK but Privy uses the ETH balance for gas estimation.
+        const data = await r.json().catch(() => ({}));
+        if (r.ok && !data.skipped) {
+          // Small delay to let the tx confirm before any downstream Privy
+          // action that might estimate gas from an empty wallet.
+          await new Promise((res) => setTimeout(res, 300));
+        }
+      })
+      .catch(() => {
+        // Non-fatal — player can still manually fund if needed.
+      });
+  }, [walletAddress]);
+
   const approve = useCallback(async (): Promise<string> => {
     if (!walletAddress) throw new Error("no wallet");
     if (!publicConfig.blokAddress || !publicConfig.gameRewardsAddress) {

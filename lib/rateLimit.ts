@@ -115,9 +115,10 @@ export function createRateLimit(opts: { limit: number; windowSec: number }): Rat
   return memoryLimiter(opts.limit, opts.windowSec);
 }
 
-/** Pre-configured limiters for the two endpoints that need them. */
+/** Pre-configured limiters for the endpoints that need them. */
 let _sessionLimit: RateLimit | null = null;
 let _mintLimit: RateLimit | null = null;
+let _faucetLimit: RateLimit | null = null;
 
 export function sessionRateLimit(): RateLimit {
   return (_sessionLimit ??= createRateLimit({ limit: 12, windowSec: 60 }));
@@ -127,8 +128,19 @@ export function mintRateLimit(): RateLimit {
   return (_mintLimit ??= createRateLimit({ limit: 10, windowSec: 60 }));
 }
 
+/**
+ * Faucet drip — 1 successful drip per wallet per 24 hours. The drip
+ * endpoint itself ALSO checks the wallet's on-chain balance and skips if
+ * already funded, so this rate-limit only needs to prevent rapid repeat
+ * drip attempts for abusive signups.
+ */
+export function faucetRateLimit(): RateLimit {
+  return (_faucetLimit ??= createRateLimit({ limit: 1, windowSec: 24 * 60 * 60 }));
+}
+
 /** Test hook. */
 export function __resetRateLimits() {
   _sessionLimit = null;
   _mintLimit = null;
+  _faucetLimit = null;
 }

@@ -230,9 +230,33 @@ export function GameView() {
     setSweepFuel(f);
     setSweepAvailable(a);
   }, []);
-  const onNukeClick = useCallback(() => {
+  const onNukeClick = useCallback(async () => {
+    // Affordability pre-check so we don't fire the full-screen flash for
+    // free when the API call will fail downstream. Guest play (no wallet)
+    // skips the cost entirely.
+    if (walletAddress && blok.ready && blok.balance < 100) {
+      toast.push("error", `need 100 $BLOK (have ${blok.balance})`);
+      return;
+    }
+    // Fire the visual immediately — feels responsive, backed by the API call.
     handleRef.current?.triggerNuke();
-  }, []);
+    // Burn 100 $BLOK via the pre-authorised allowance. Guests skip.
+    if (!walletAddress || !sessionToken) return;
+    try {
+      const res = await fetch("/api/nuke", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ token: sessionToken, walletAddress, modeId }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error ?? "nuke charge failed");
+      toast.push("success", "−100 $BLOK (nuke)");
+      await blok.refresh();
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : "nuke charge failed";
+      toast.push("error", msg);
+    }
+  }, [walletAddress, sessionToken, modeId, toast, blok]);
 
   const retry = () => {
     setScore(0);
