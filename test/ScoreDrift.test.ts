@@ -31,8 +31,8 @@ function readSrc(path: string): string {
  */
 const DIFFICULTY = [
   { id: 0, blocksPerSecond: 1, durationSec: 90 },
-  { id: 1, blocksPerSecond: 10, durationSec: 60 },
-  { id: 2, blocksPerSecond: 50, durationSec: 45 },
+  { id: 1, blocksPerSecond: 5, durationSec: 60 },
+  { id: 2, blocksPerSecond: 15, durationSec: 45 },
   { id: 3, blocksPerSecond: 100, durationSec: 30 },
 ] as const;
 
