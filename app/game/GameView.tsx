@@ -80,8 +80,10 @@ export function GameView() {
   const [milestoneFlash, setMilestoneFlash] = useState<number>(0); // ticks when multiplier changes up
   const [streak, setStreak] = useState(0);
   const [heatLevel, setHeatLevel] = useState(0);
-  // Nuke readiness is derived from `streak` + wallet balance below, not
-  // stored directly. See NukeButton render.
+  // Nuke readiness is derived from `nukeKills` + wallet balance below.
+  // Scene emits NUKE_PROGRESS on every hit; we track the latest here.
+  const [nukeKills, setNukeKills] = useState(0);
+  const [nukeThreshold, setNukeThreshold] = useState(25);
   const [sweepFuel, setSweepFuel] = useState(1); // 0..1
   const [sweepAvailable, setSweepAvailable] = useState(modeId !== 0);
   const handleRef = useRef<GameCanvasHandle | null>(null);
@@ -225,6 +227,10 @@ export function GameView() {
     setStreak(s);
     setHeatLevel(h);
   }, []);
+  const onNukeProgress = useCallback((kills: number, threshold: number) => {
+    setNukeKills(kills);
+    setNukeThreshold(threshold);
+  }, []);
   const onSweepFuel = useCallback((f: number, a: boolean) => {
     setSweepFuel(f);
     setSweepAvailable(a);
@@ -311,6 +317,7 @@ export function GameView() {
     // Reset the new mechanics — streak/heat/nuke/fuel all start fresh.
     setStreak(0);
     setHeatLevel(0);
+    setNukeKills(0);
     setSweepFuel(1);
     setRunKey((k) => k + 1);
   };
@@ -416,6 +423,7 @@ export function GameView() {
               onGameOver={onGameOver}
               onReady={onReady}
               onStreak={onStreak}
+              onNukeProgress={onNukeProgress}
               onSweepFuel={onSweepFuel}
               onBank={onBank}
               registerHandle={(h) => (handleRef.current = h)}
@@ -437,7 +445,8 @@ export function GameView() {
               />
             )}
             <NukeButton
-              streak={streak}
+              kills={nukeKills}
+              threshold={nukeThreshold}
               balance={isAuthenticated ? blok.balance : 0}
               isAuthenticated={isAuthenticated}
               onActivate={onNukeClick}
@@ -560,25 +569,27 @@ function SweepReloadButton({
 }
 
 function NukeButton({
-  streak,
+  kills,
+  threshold,
   balance,
   isAuthenticated,
   onActivate,
 }: {
-  /** Current consecutive-hit streak. */
-  streak: number;
+  /** Cumulative blocks destroyed since last nuke use. */
+  kills: number;
+  /** Kill count required to unlock the nuke (scene-side constant). */
+  threshold: number;
   /** $BLOK wallet balance (0 for guests — they can't fire the nuke). */
   balance: number;
   /** Signed-in guests see a disabled hint state rather than sign-in copy. */
   isAuthenticated: boolean;
   onActivate: () => void;
 }) {
-  const STREAK_THRESHOLD = 25;
   const COST = 100;
-  const streakMet = streak >= STREAK_THRESHOLD;
+  const killsMet = kills >= threshold;
   // Guests can't afford by definition — the nuke is a BLOK-gated action.
   const balanceMet = isAuthenticated && balance >= COST;
-  const armed = streakMet && balanceMet;
+  const armed = killsMet && balanceMet;
 
   // Four spec states. Colour + pulse + centre text all shift.
   let track = "rgba(236,232,232,0.18)"; // grey ring
@@ -597,20 +608,20 @@ function NukeButton({
     centreText = "NUKE";
     pulse = true;
     shadow = "shadow-[0_0_24px_rgba(255,210,109,0.55)]";
-  } else if (streakMet && !balanceMet) {
+  } else if (killsMet && !balanceMet) {
     // Earned but can't afford — pulse grey in the same rhythm so the
-    // player feels the rhythm of "it's ready, pay up"
+    // player feels "it's ready, pay up"
     centreClass = "bg-night-sky text-moon-white/60";
     centreText = isAuthenticated ? `${COST} $BLOK` : "SIGN IN";
     pulse = true;
     shadow = "shadow-[0_0_12px_rgba(236,232,232,0.2)]";
-  } else if (!streakMet) {
-    // Show streak progress toward 25 as a subtle conic fill
-    const pct = Math.min(1, streak / STREAK_THRESHOLD);
+  } else {
+    // Show kill progress toward threshold as a subtle conic fill
+    const pct = Math.min(1, kills / threshold);
     ringAngle = pct * 360;
     fill = "#7EAAD4"; // sky blue — neutral "working toward it"
     centreClass = "bg-night-sky text-moon-white/40";
-    centreText = `${streak}/${STREAK_THRESHOLD}`;
+    centreText = `${kills}/${threshold}`;
   }
 
   return (
@@ -620,9 +631,9 @@ function NukeButton({
       aria-label={
         armed
           ? "Activate nuke — 100 $BLOK"
-          : streakMet
+          : killsMet
             ? `Nuke ready but needs 100 $BLOK (have ${balance})`
-            : `Nuke requires streak of ${STREAK_THRESHOLD} (at ${streak})`
+            : `Nuke requires ${threshold} kills (at ${kills})`
       }
       className={`absolute top-4 right-4 w-14 h-14 rounded-full p-[3px] transition-all ${
         armed ? "cursor-pointer" : "cursor-not-allowed"
