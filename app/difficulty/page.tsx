@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { DIFFICULTY_MODES } from "@/lib/difficulty";
 import { BlockTicker } from "@/components/ui/BlockTicker";
 import { useAuth } from "@/hooks/useAuth";
@@ -18,6 +18,11 @@ export default function DifficultyPage() {
   const toast = useToast();
   const [pendingMode, setPendingMode] = useState<number | null>(null);
   const [placing, setPlacing] = useState(false);
+  // Ref lock — React's `placing` state is async and a fast repeat click
+  // can fire placeWagerAndPlay() twice before the button re-disables,
+  // blowing through rate limits on the second call. The ref flips
+  // synchronously so any re-entry is rejected immediately.
+  const placeLockRef = useRef(false);
 
   // A tile click either opens the wager picker (if the player has a PB on
   // that mode and enough balance for at least the smallest tier) or
@@ -35,6 +40,7 @@ export default function DifficultyPage() {
 
   const placeWagerAndPlay = async (amount: number | null) => {
     if (pendingMode === null) return;
+    if (placeLockRef.current) return;
     const modeId = pendingMode;
     if (amount === null || !walletAddress) {
       // Skip path — straight to game.
@@ -42,6 +48,7 @@ export default function DifficultyPage() {
       router.push(`/game?mode=${modeId}`);
       return;
     }
+    placeLockRef.current = true;
     setPlacing(true);
     try {
       const res = await fetch("/api/wager", {
@@ -58,6 +65,7 @@ export default function DifficultyPage() {
       const msg = e instanceof Error ? e.message : "wager failed";
       toast.push("error", msg);
     } finally {
+      placeLockRef.current = false;
       setPlacing(false);
       setPendingMode(null);
     }

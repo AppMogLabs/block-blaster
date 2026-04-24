@@ -118,14 +118,30 @@ export function createRateLimit(opts: { limit: number; windowSec: number }): Rat
 /** Pre-configured limiters for the endpoints that need them. */
 let _sessionLimit: RateLimit | null = null;
 let _mintLimit: RateLimit | null = null;
+let _wagerLimit: RateLimit | null = null;
 let _faucetLimit: RateLimit | null = null;
 
 export function sessionRateLimit(): RateLimit {
   return (_sessionLimit ??= createRateLimit({ limit: 12, windowSec: 60 }));
 }
 
+/**
+ * Covers the hot in-game spend path (bank / nuke / sweep-reload / game-end).
+ * Raised from 10/min to 30/min because a single active run can legitimately
+ * fire: ~5 banks + 1-2 nukes + a reload or two + game-end. 10 was blocking
+ * players mid-minute on reasonable activity.
+ */
 export function mintRateLimit(): RateLimit {
-  return (_mintLimit ??= createRateLimit({ limit: 10, windowSec: 60 }));
+  return (_mintLimit ??= createRateLimit({ limit: 30, windowSec: 60 }));
+}
+
+/**
+ * Wagers happen pre-game, at most a few times per minute even with
+ * aggressive retry. Separate limiter so a player mid-run who hits the
+ * in-game cap doesn't then fail their next wager.
+ */
+export function wagerRateLimit(): RateLimit {
+  return (_wagerLimit ??= createRateLimit({ limit: 6, windowSec: 60 }));
 }
 
 /**
@@ -142,5 +158,6 @@ export function faucetRateLimit(): RateLimit {
 export function __resetRateLimits() {
   _sessionLimit = null;
   _mintLimit = null;
+  _wagerLimit = null;
   _faucetLimit = null;
 }

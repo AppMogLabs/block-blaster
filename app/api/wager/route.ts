@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getChain } from "@/lib/chain";
-import { mintRateLimit } from "@/lib/rateLimit";
+import { wagerRateLimit } from "@/lib/rateLimit";
 import { logger, shortWallet } from "@/lib/logger";
 
 export const runtime = "nodejs";
@@ -44,7 +44,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "amount must be 50, 100, 200, or 500" }, { status: 400 });
   }
 
-  const rl = await mintRateLimit().check(walletAddress.toLowerCase());
+  const rl = await wagerRateLimit().check(walletAddress.toLowerCase());
   if (!rl.ok) {
     return NextResponse.json(
       { error: "too many requests", retryAfterSec: rl.retryAfterSec },
