@@ -84,6 +84,12 @@ export function GameView() {
   // Scene emits NUKE_PROGRESS on every hit; we track the latest here.
   const [nukeKills, setNukeKills] = useState(0);
   const [nukeThreshold, setNukeThreshold] = useState(25);
+
+  // Personal best for the current mode — shown in HUD once > 0.
+  const currentPb = blok.personalBests[modeId] ?? 0;
+  // True once this run's cumulative banked total exceeds the old PB. At
+  // that point the banner reads "NEW PB" with the live total.
+  const beatingPb = currentPb > 0 && banked > currentPb;
   const [sweepFuel, setSweepFuel] = useState(1); // 0..1
   const [sweepAvailable, setSweepAvailable] = useState(modeId !== 0);
   const handleRef = useRef<GameCanvasHandle | null>(null);
@@ -401,6 +407,28 @@ export function GameView() {
             <span className="text-moon-white/50 uppercase text-[10px]">pending</span>{" "}
             <span className="tabular-nums font-bold">{pending}</span>
           </div>
+          {/* Personal Best chip — only shown to authenticated players with
+              an existing PB. Turns green + "NEW PB" once this run's banks
+              exceed it so the player knows they're in record territory. */}
+          {isAuthenticated && currentPb > 0 && (
+            <div
+              className={`mono ${
+                beatingPb ? "text-mint font-bold animate-[milestonePop_0.45s_ease-out]" : "text-moon-white/50"
+              }`}
+              title={
+                beatingPb
+                  ? `Beating your PB — new high is ${banked}`
+                  : `Personal best on ${mode.label}`
+              }
+            >
+              <span className="text-moon-white/50 uppercase text-[10px]">
+                {beatingPb ? "new pb" : "pb"}
+              </span>{" "}
+              <span className="tabular-nums">
+                {beatingPb ? banked : currentPb}
+              </span>
+            </div>
+          )}
         </div>
       </div>
 
