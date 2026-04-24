@@ -205,9 +205,12 @@ export function GameView() {
         });
         const data = await res.json();
         if (!res.ok) throw new Error(data.error ?? "bank failed");
+        // Bump local balance NOW so the next action (nuke, etc.) sees the
+        // just-banked amount without waiting for the mint tx to land on
+        // chain + propagate back through /api/balance. The hook also
+        // re-reads chain at +1.2s to reconcile.
+        blok.addOptimistic(justBanked);
         toast.push("success", `+${justBanked} $BLOK minted`);
-        // Refresh balance so HUD shows the new amount.
-        await blok.refresh();
       } catch (e) {
         const msg = e instanceof Error ? e.message : "bank failed";
         toast.push("error", `bank: ${msg}`);
@@ -250,8 +253,10 @@ export function GameView() {
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error ?? "nuke charge failed");
+      // Mirror the server-side burn locally so a subsequent action sees the
+      // post-spend balance immediately.
+      blok.addOptimistic(-100);
       toast.push("success", "−100 $BLOK (nuke)");
-      await blok.refresh();
     } catch (e) {
       const msg = e instanceof Error ? e.message : "nuke charge failed";
       toast.push("error", msg);

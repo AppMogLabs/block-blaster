@@ -31,6 +31,13 @@ type Actions = {
   refresh: () => Promise<void>;
   /** Prompt Privy to sign an `approve(gameRewards, MAX_UINT)` tx on BlokToken. */
   approve: () => Promise<string>;
+  /**
+   * Optimistically adjust local balance. Positive for mint, negative for
+   * spend. Use right after a tx submits so the UI reflects the intended
+   * state before the mint/burn confirms on chain. Also schedules a
+   * verification refresh ~1s later to reconcile with on-chain truth.
+   */
+  addOptimistic: (delta: number) => void;
 };
 
 /**
@@ -129,6 +136,19 @@ export function useBlok(walletAddressProp?: string | null): BlokState & Actions 
       });
   }, [walletAddress]);
 
+  const addOptimistic = useCallback(
+    (delta: number) => {
+      if (!delta) return;
+      setState((s) => ({ ...s, balance: Math.max(0, s.balance + delta) }));
+      // Reconcile with on-chain truth shortly. 1.2s gives the tx enough
+      // time to land on MegaETH (10ms blocks + RPC propagation).
+      setTimeout(() => {
+        refresh();
+      }, 1200);
+    },
+    [refresh]
+  );
+
   const approve = useCallback(async (): Promise<string> => {
     if (!walletAddress) throw new Error("no wallet");
     if (!publicConfig.blokAddress || !publicConfig.gameRewardsAddress) {
@@ -147,5 +167,5 @@ export function useBlok(walletAddressProp?: string | null): BlokState & Actions 
     return tx.hash as string;
   }, [wallets, walletAddress, refresh]);
 
-  return { ...state, refresh, approve };
+  return { ...state, refresh, approve, addOptimistic };
 }
