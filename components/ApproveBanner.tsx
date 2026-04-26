@@ -7,6 +7,8 @@ import { useToast } from "@/components/ui/Toast";
 import { publicConfig } from "@/lib/config";
 import { txLink } from "@/lib/txLink";
 
+const DISMISS_KEY = "bb:approve-banner-dismissed";
+
 /**
  * Shown globally when the player is signed in but has not yet approved the
  * GameRewards contract to spend their $BLOK. One-time prompt — after
@@ -29,6 +31,10 @@ export function ApproveBanner() {
   // flash up for users who actually are approved.
   const [showableAt, setShowableAt] = useState<number | null>(null);
   const [tick, setTick] = useState(0);
+  const [dismissed, setDismissed] = useState<boolean>(() => {
+    if (typeof window === "undefined") return false;
+    return window.sessionStorage.getItem(DISMISS_KEY) === "1";
+  });
 
   useEffect(() => {
     if (!ready || approved) {
@@ -54,6 +60,7 @@ export function ApproveBanner() {
     !ready ||
     approved ||
     !settled ||
+    dismissed ||
     !publicConfig.gameRewardsAddress
   ) {
     // `tick` dependency keeps the settle timer re-rendering properly
@@ -82,22 +89,37 @@ export function ApproveBanner() {
     }
   };
 
+  const handleSkip = () => {
+    window.sessionStorage.setItem(DISMISS_KEY, "1");
+    setDismissed(true);
+  };
+
   return (
-    <div className="fixed top-3 left-1/2 -translate-x-1/2 z-[500] w-[min(92vw,620px)] px-4 py-3 rounded-lg glass border border-pink/40 flex items-center gap-4">
+    <div className="fixed top-3 left-1/2 -translate-x-1/2 z-[500] w-[min(92vw,620px)] px-4 py-3 rounded-lg glass border border-pink/40 flex items-center gap-3">
       <div className="flex-1 text-xs text-moon-white/80">
         <div className="mono uppercase tracking-widest text-pink text-[10px] mb-1">
-          one-time setup
+          optional setup
         </div>
-        Allow Block Blaster to spend <span className="mono">$BLOK</span> for in-game
-        actions (Nuke, Sweep reload, Wagers). Required before your first action.
+        Approve <span className="mono">$BLOK</span> spending to unlock Nuke,
+        Sweep reload, and Wagers. You can play and bank without this — only
+        the in-game spend actions need it.
       </div>
-      <button
-        onClick={handleApprove}
-        disabled={submitting}
-        className="btn-primary text-xs whitespace-nowrap disabled:opacity-50"
-      >
-        {submitting ? "approving…" : "Approve"}
-      </button>
+      <div className="flex flex-col gap-1 shrink-0">
+        <button
+          onClick={handleApprove}
+          disabled={submitting}
+          className="btn-primary text-xs whitespace-nowrap disabled:opacity-50"
+        >
+          {submitting ? "approving…" : "Approve"}
+        </button>
+        <button
+          onClick={handleSkip}
+          disabled={submitting}
+          className="text-[10px] text-moon-white/50 hover:text-moon-white/80 underline decoration-dotted disabled:opacity-30"
+        >
+          Skip for now
+        </button>
+      </div>
     </div>
   );
 }

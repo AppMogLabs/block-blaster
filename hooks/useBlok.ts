@@ -163,15 +163,36 @@ export function useBlok(walletAddressProp?: string | null): BlokState & Actions 
     const embedded = wallets.find((w) => w.walletClientType === "privy");
     if (!embedded) throw new Error("no embedded wallet — sign in first");
 
-    // Make sure the embedded wallet is on MegaETH before we ask Privy to
-    // sign. For fresh Google/Email logins the wallet may default to mainnet
-    // until the first switchChain call, which then triggers a chain-switch
-    // popup mid-tx — easy to confuse with a hung approve.
+    // Wait for the wallet to actually be connected before doing anything.
+    // For brand-new email/Google sessions Privy provisions the wallet
+    // asynchronously; calling switchChain or sendTransaction before it's
+    // ready is what produces the silent multi-minute hang.
     try {
-      await embedded.switchChain(publicConfig.megaethChainId);
+      const connected = await Promise.race([
+        embedded.isConnected(),
+        new Promise<boolean>((res) => setTimeout(() => res(false), 8000)),
+      ]);
+      if (!connected) {
+        throw new Error(
+          "wallet not ready — give it a few seconds and try again"
+        );
+      }
+    } catch (e) {
+      if (e instanceof Error && e.message.includes("wallet not ready")) throw e;
+      // Other isConnected failures are non-fatal; sendTransaction will
+      // surface its own error.
+    }
+
+    // Best-effort chain switch. Bound by 5s so a hung switch can't block
+    // forever — sendTransaction below also passes chainId so the right
+    // chain is selected even if this no-ops.
+    try {
+      await Promise.race([
+        embedded.switchChain(publicConfig.megaethChainId),
+        new Promise<void>((res) => setTimeout(res, 5000)),
+      ]);
     } catch {
-      // Non-fatal — sendTransaction below will surface the real error if
-      // the chain truly cannot be reached.
+      // Non-fatal.
     }
 
     const iface = new Interface(BLOK_ABI);
@@ -180,21 +201,37 @@ export function useBlok(walletAddressProp?: string | null): BlokState & Actions 
       MaxUint256,
     ]) as `0x${string}`;
 
-    const receipt = await sendTransaction(
-      {
-        to: publicConfig.blokAddress as `0x${string}`,
-        data,
-        chainId: publicConfig.megaethChainId,
-      },
-      {
-        header: "Approve $BLOK spending",
-        description:
-          "One-time approval so Block Blaster can spend your $BLOK on Nuke, Sweep reload, and wagers.",
-        buttonText: "Approve",
-      }
-    );
+    // Hard timeout on the actual signing call. If Privy's modal never
+    // surfaces (mobile popup blocker, hung provisioning) we fail fast
+    // with an actionable error instead of spinning forever.
+    const receipt = (await Promise.race([
+      sendTransaction(
+        {
+          to: publicConfig.blokAddress as `0x${string}`,
+          data,
+          chainId: publicConfig.megaethChainId,
+        },
+        {
+          header: "Approve $BLOK spending",
+          description:
+            "One-time approval so Block Blaster can spend your $BLOK on Nuke, Sweep reload, and wagers.",
+          buttonText: "Approve",
+        }
+      ),
+      new Promise<never>((_, rej) =>
+        setTimeout(
+          () =>
+            rej(
+              new Error(
+                "approve timed out — check the wallet popup, or skip approve and play normally"
+              )
+            ),
+          45_000
+        )
+      ),
+    ])) as { transactionHash: string };
     await refresh();
-    return receipt.transactionHash as string;
+    return receipt.transactionHash;
   }, [wallets, walletAddress, refresh, sendTransaction]);
 
   return { ...state, refresh, approve, addOptimistic };
