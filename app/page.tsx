@@ -73,7 +73,7 @@ export default function Home() {
                 ? displayName
                   ? `Continue as ${displayName}`
                   : "Continue"
-                : "Sign in"}
+                : "Sign in with X"}
             </button>
           </div>
 
