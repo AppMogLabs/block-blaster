@@ -65,6 +65,9 @@ export function GameView() {
   const beatingPb = currentPb > 0 && banked > currentPb;
   const [sweepFuel, setSweepFuel] = useState(1); // 0..1
   const [sweepAvailable, setSweepAvailable] = useState(modeId !== 0);
+  // Guest-mid-run sign-in flow: clicking any "SIGN IN" affordance pauses the
+  // scene and prompts the player to end this run + sign in. Resumes on cancel.
+  const [showSignInConfirm, setShowSignInConfirm] = useState(false);
   const handleRef = useRef<GameCanvasHandle | null>(null);
   const lastMultiplier = useRef(1);
 
@@ -214,6 +217,25 @@ export function GameView() {
     setSweepFuel(f);
     setSweepAvailable(a);
   }, []);
+  const promptEndAndSignIn = useCallback(() => {
+    handleRef.current?.pause();
+    setShowSignInConfirm(true);
+  }, []);
+
+  const cancelSignIn = useCallback(() => {
+    setShowSignInConfirm(false);
+    handleRef.current?.resume();
+  }, []);
+
+  const confirmEndAndSignIn = useCallback(() => {
+    setShowSignInConfirm(false);
+    // Drop back to the difficulty screen — Phaser tears down via the cleanup
+    // hook on unmount, so the half-finished guest run is discarded cleanly.
+    // Privy's modal opens on top; once auth completes the user picks a mode.
+    login();
+    router.push("/difficulty");
+  }, [login, router]);
+
   const onReloadClick = useCallback(async () => {
     // Sweep reload: 25 $BLOK to refill fuel instantly. Not available on
     // Easy (no sweep beam there anyway). Pre-checks to avoid free reload
@@ -224,7 +246,7 @@ export function GameView() {
       return;
     }
     if (!walletAddress) {
-      toast.push("error", "sign in to reload sweep");
+      promptEndAndSignIn();
       return;
     }
     if (blok.ready && blok.balance < 25) {
@@ -254,10 +276,15 @@ export function GameView() {
   }, [walletAddress, sessionToken, modeId, sweepFuel, blok, toast]);
 
   const onNukeClick = useCallback(async () => {
+    // Guest taps the "SIGN IN" pill on the nuke gate — divert to the
+    // confirm-end-and-sign-in flow instead of running a free guest nuke.
+    if (!walletAddress) {
+      promptEndAndSignIn();
+      return;
+    }
     // Affordability pre-check so we don't fire the full-screen flash for
-    // free when the API call will fail downstream. Guest play (no wallet)
-    // skips the cost entirely.
-    if (walletAddress && blok.ready && blok.balance < 100) {
+    // free when the API call will fail downstream.
+    if (blok.ready && blok.balance < 100) {
       toast.push("error", `need 100 $BLOK (have ${blok.balance})`);
       return;
     }
@@ -480,6 +507,42 @@ export function GameView() {
             onRetry={retry}
           />
         )}
+        {showSignInConfirm && (
+          <div
+            className="absolute inset-0 z-50 flex items-center justify-center bg-night-sky/85 backdrop-blur-sm p-6"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="signin-confirm-title"
+          >
+            <div className="glass rounded-2xl p-6 max-w-md w-full text-center">
+              <div
+                id="signin-confirm-title"
+                className="mono text-xs uppercase tracking-widest text-pink"
+              >
+                end run & sign in?
+              </div>
+              <p className="mt-3 text-sm text-moon-white/85 leading-relaxed">
+                Sign-in starts a fresh authenticated run so your{" "}
+                <span className="mono">$BLOK</span> can mint to your wallet.
+                Your current guest progress will be discarded.
+              </p>
+              <div className="mt-6 flex flex-col sm:flex-row gap-2 justify-center">
+                <button
+                  onClick={confirmEndAndSignIn}
+                  className="btn-primary text-xs"
+                >
+                  End run & sign in
+                </button>
+                <button
+                  onClick={cancelSignIn}
+                  className="btn-secondary text-xs"
+                >
+                  Keep playing
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     </main>
   );
@@ -624,19 +687,26 @@ function NukeButton({
     centreText = `${kills}/${threshold}`;
   }
 
+  // Guests at the SIGN IN state can click to open the end-and-sign-in
+  // confirm. Authenticated-but-broke users stay disabled.
+  const guestSignInPrompt = killsMet && !isAuthenticated;
+  const clickable = armed || guestSignInPrompt;
+
   return (
     <button
       onClick={onActivate}
-      disabled={!armed}
+      disabled={!clickable}
       aria-label={
         armed
           ? "Activate nuke — 100 $BLOK"
-          : killsMet
-            ? `Nuke ready but needs 100 $BLOK (have ${balance})`
-            : `Nuke requires ${threshold} kills (at ${kills})`
+          : guestSignInPrompt
+            ? "Sign in to use the nuke"
+            : killsMet
+              ? `Nuke ready but needs 100 $BLOK (have ${balance})`
+              : `Nuke requires ${threshold} kills (at ${kills})`
       }
       className={`absolute top-4 right-4 w-14 h-14 rounded-full p-[3px] transition-all ${
-        armed ? "cursor-pointer" : "cursor-not-allowed"
+        clickable ? "cursor-pointer" : "cursor-not-allowed"
       } ${pulse ? "animate-[milestonePop_1.4s_ease-in-out_infinite]" : ""} ${shadow}`}
       style={{
         background: `conic-gradient(${fill} ${ringAngle}deg, ${track} ${ringAngle}deg 360deg)`,

@@ -10,6 +10,8 @@ export type GameCanvasHandle = {
   bankEarly: () => void;
   triggerNuke: () => void;
   refillSweep: () => void;
+  pause: () => void;
+  resume: () => void;
   destroy: () => void;
 };
 
@@ -138,6 +140,14 @@ export function GameCanvas(props: GameCanvasProps) {
             refillSweep?: () => void;
           } | null;
           scene?.refillSweep?.();
+        },
+        pause: () => {
+          const scene = sceneRef.current;
+          if (scene && !scene.scene.isPaused()) scene.scene.pause();
+        },
+        resume: () => {
+          const scene = sceneRef.current;
+          if (scene && scene.scene.isPaused()) scene.scene.resume();
         },
         destroy: () => game.destroy(true),
       });

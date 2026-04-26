@@ -16,6 +16,7 @@ export default function Home() {
   // hydration can disagree on these values (e.g. when Privy's bundle lags the
   // env var update). Gating on `mounted` forces identical server/client markup.
   const [mounted, setMounted] = useState(false);
+  const [showGuestConfirm, setShowGuestConfirm] = useState(false);
   useEffect(() => setMounted(true), []);
 
   const handleSignIn = () => {
@@ -61,15 +62,64 @@ export default function Home() {
           </div>
 
           <div className="flex flex-col sm:flex-row gap-3 w-full sm:w-auto">
-            <Link href="/difficulty" className="btn-secondary">
+            <button
+              onClick={() => setShowGuestConfirm(true)}
+              className="btn-secondary"
+            >
               Play as Guest
-            </Link>
+            </button>
             <button onClick={handleSignIn} className="btn-primary">
               {mounted && isAuthenticated
                 ? `Continue as @${handle ?? "you"}`
-                : "Sign in with X"}
+                : "Sign in"}
             </button>
           </div>
+
+          {showGuestConfirm && (
+            <div
+              className="fixed inset-0 z-50 flex items-center justify-center bg-night-sky/80 backdrop-blur-sm p-6"
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby="guest-confirm-title"
+              onClick={() => setShowGuestConfirm(false)}
+            >
+              <div
+                className="glass rounded-2xl p-6 max-w-md w-full text-center"
+                onClick={(e) => e.stopPropagation()}
+              >
+                <div
+                  id="guest-confirm-title"
+                  className="mono text-xs uppercase tracking-widest text-moon-white/60"
+                >
+                  guest mode
+                </div>
+                <p className="mt-3 text-sm text-moon-white/85 leading-relaxed">
+                  Guest mode = no wallet, no leaderboard, no{" "}
+                  <span className="mono">$BLOK</span>, limited gameplay.
+                </p>
+                <div className="mt-6 flex flex-col sm:flex-row gap-2 justify-center">
+                  <button
+                    onClick={() => {
+                      setShowGuestConfirm(false);
+                      login();
+                    }}
+                    className="btn-primary text-xs"
+                  >
+                    Sign in to bank $BLOK
+                  </button>
+                  <button
+                    onClick={() => {
+                      setShowGuestConfirm(false);
+                      router.push("/difficulty");
+                    }}
+                    className="btn-secondary text-xs"
+                  >
+                    Just let me play
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
 
           <div className="glass rounded-xl px-5 py-4 w-full max-w-lg text-left">
             <div className="mono text-xs uppercase tracking-widest text-moon-white/50">
