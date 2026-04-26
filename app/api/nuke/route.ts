@@ -101,11 +101,16 @@ export async function POST(req: NextRequest) {
     });
     // Surface a clearer error for the two most common revert reasons.
     const lower = msg.toLowerCase();
-    const friendly = lower.includes("insufficient balance") || lower.includes("erc20")
-      ? "insufficient $BLOK balance (100 required)"
-      : lower.includes("insufficient allowance")
-        ? "approve $BLOK first — allowance too low"
-        : msg;
+    // "missing revert data" is the ethers v6 surface for any silent revert,
+    // most commonly a transferFrom with allowance=0 (user hasn't approved).
+    const friendly =
+      lower.includes("insufficient balance") || lower.includes("erc20: transfer amount exceeds balance")
+        ? "insufficient $BLOK balance (100 required)"
+        : lower.includes("insufficient allowance") ||
+            lower.includes("missing revert data") ||
+            lower.includes("erc20: insufficient allowance")
+          ? "approve $BLOK spending first to use the nuke"
+          : msg;
     return NextResponse.json({ error: friendly }, { status: 400 });
   }
 }

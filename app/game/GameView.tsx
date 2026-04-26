@@ -249,6 +249,10 @@ export function GameView() {
       promptEndAndSignIn();
       return;
     }
+    if (blok.ready && !blok.approved) {
+      toast.push("error", "approve $BLOK spending first (banner on home)");
+      return;
+    }
     if (blok.ready && blok.balance < 25) {
       toast.push("error", `need 25 $BLOK (have ${blok.balance})`);
       return;
@@ -280,6 +284,13 @@ export function GameView() {
     // confirm-end-and-sign-in flow instead of running a free guest nuke.
     if (!walletAddress) {
       promptEndAndSignIn();
+      return;
+    }
+    // Block early if the user has $BLOK but hasn't approved spending yet.
+    // Without this the visual fires, the API reverts on transferFrom, and
+    // the player thinks the nuke worked when their wallet wasn't charged.
+    if (blok.ready && !blok.approved) {
+      toast.push("error", "approve $BLOK spending first (banner on home)");
       return;
     }
     // Affordability pre-check so we don't fire the full-screen flash for

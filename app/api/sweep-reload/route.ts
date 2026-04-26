@@ -98,11 +98,14 @@ export async function POST(req: NextRequest) {
       error: msg,
     });
     const lower = msg.toLowerCase();
-    const friendly = lower.includes("insufficient balance") || lower.includes("erc20")
-      ? "insufficient $BLOK balance (25 required)"
-      : lower.includes("insufficient allowance")
-        ? "approve $BLOK first — allowance too low"
-        : msg;
+    const friendly =
+      lower.includes("insufficient balance") || lower.includes("erc20: transfer amount exceeds balance")
+        ? "insufficient $BLOK balance (25 required)"
+        : lower.includes("insufficient allowance") ||
+            lower.includes("missing revert data") ||
+            lower.includes("erc20: insufficient allowance")
+          ? "approve $BLOK spending first to refill sweep"
+          : msg;
     return NextResponse.json({ error: friendly }, { status: 400 });
   }
 }
