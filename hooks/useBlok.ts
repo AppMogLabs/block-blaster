@@ -1,7 +1,11 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useSendTransaction, useWallets } from "@privy-io/react-auth";
+import {
+  useIdentityToken,
+  useSendTransaction,
+  useWallets,
+} from "@privy-io/react-auth";
 import { Interface, MaxUint256 } from "ethers";
 import { publicConfig } from "@/lib/config";
 import { BLOK_ABI } from "@/lib/contracts";
@@ -57,6 +61,9 @@ export function useBlok(walletAddressProp?: string | null): BlokState & Actions 
   // connected" failure mode when going through ethers BrowserProvider on a
   // not-yet-warmed wallet.
   const { sendTransaction } = useSendTransaction();
+  // Identity token used to authenticate server-side routes that act on the
+  // user's behalf (currently /api/faucet-drip).
+  const { identityToken } = useIdentityToken();
   const walletAddress = useMemo(
     () => (walletAddressProp ?? null)?.toLowerCase() || null,
     [walletAddressProp]
@@ -120,11 +127,18 @@ export function useBlok(walletAddressProp?: string | null): BlokState & Actions 
   const drippedFor = useRef<string | null>(null);
   useEffect(() => {
     if (!walletAddress) return;
+    // Wait until Privy has issued the identity token before dripping —
+    // the endpoint requires it to verify the caller. Without this guard
+    // the first drip on cold-start sign-in 401s.
+    if (!identityToken) return;
     if (drippedFor.current === walletAddress) return;
     drippedFor.current = walletAddress;
     fetch("/api/faucet-drip", {
       method: "POST",
-      headers: { "content-type": "application/json" },
+      headers: {
+        "content-type": "application/json",
+        authorization: `Bearer ${identityToken}`,
+      },
       body: JSON.stringify({ walletAddress }),
     })
       .then(async (r) => {
@@ -140,7 +154,7 @@ export function useBlok(walletAddressProp?: string | null): BlokState & Actions 
       .catch(() => {
         // Non-fatal — player can still manually fund if needed.
       });
-  }, [walletAddress]);
+  }, [walletAddress, identityToken]);
 
   const addOptimistic = useCallback(
     (delta: number) => {

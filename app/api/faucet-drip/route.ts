@@ -3,6 +3,7 @@ import { parseEther, formatEther } from "ethers";
 import { getChain } from "@/lib/chain";
 import { faucetRateLimit } from "@/lib/rateLimit";
 import { logger, shortWallet } from "@/lib/logger";
+import { verifyRequest } from "@/lib/privyAuth";
 
 export const runtime = "nodejs";
 
@@ -40,6 +41,26 @@ export async function POST(req: NextRequest) {
   const { walletAddress } = body as { walletAddress?: string };
   if (!walletAddress || !/^0x[a-fA-F0-9]{40}$/.test(walletAddress)) {
     return NextResponse.json({ error: "walletAddress required" }, { status: 400 });
+  }
+
+  // Privy identity-token auth: the caller MUST be a signed-in user (X login)
+  // whose embedded wallet matches the requested walletAddress. Without this
+  // anyone can mass-drip the backend wallet by POSTing fresh addresses.
+  const auth = await verifyRequest(req);
+  if (!auth) {
+    return NextResponse.json(
+      { error: "sign in to request a drip" },
+      { status: 401 }
+    );
+  }
+  if (
+    !auth.walletAddress ||
+    auth.walletAddress !== walletAddress.toLowerCase()
+  ) {
+    return NextResponse.json(
+      { error: "wallet does not belong to authenticated user" },
+      { status: 403 }
+    );
   }
 
   const rl = await faucetRateLimit().check(walletAddress.toLowerCase());
