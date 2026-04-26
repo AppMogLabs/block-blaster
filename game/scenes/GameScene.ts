@@ -783,9 +783,7 @@ export class GameScene extends Phaser.Scene {
     this.cameras.main.shake(600, 0.05);
 
     // Audio cue — without this the nuke is visually dramatic but silent.
-    if (this.sound.get(SFX.NUKE)) {
-      this.sound.play(SFX.NUKE, { volume: 0.9 });
-    }
+    this.sfx(SFX.NUKE, { volume: 0.9 });
 
     // Full-screen white flash. Hold at full opacity for 120ms before
     // fading so on Real-time (100 bps respawning behind the flash) the
