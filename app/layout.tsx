@@ -3,6 +3,7 @@ import "./globals.css";
 import { Providers } from "@/components/providers/Providers";
 import { BackgroundLogo } from "@/components/BackgroundLogo";
 import { ApproveBanner } from "@/components/ApproveBanner";
+import { WelcomeModal } from "@/components/WelcomeModal";
 
 export const metadata: Metadata = {
   title: "Block Blaster — The chain never stops",
@@ -39,6 +40,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       <body>
         <BackgroundLogo />
         <Providers>
+          <WelcomeModal />
           <ApproveBanner />
           {children}
         </Providers>
