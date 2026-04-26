@@ -1,8 +1,8 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useWallets } from "@privy-io/react-auth";
-import { BrowserProvider, Contract, MaxUint256 } from "ethers";
+import { useSendTransaction, useWallets } from "@privy-io/react-auth";
+import { Interface, MaxUint256 } from "ethers";
 import { publicConfig } from "@/lib/config";
 import { BLOK_ABI } from "@/lib/contracts";
 
@@ -51,6 +51,12 @@ type Actions = {
  */
 export function useBlok(walletAddressProp?: string | null): BlokState & Actions {
   const { wallets } = useWallets();
+  // Privy-native tx send. Handles embedded-wallet provisioning (lazy for
+  // social logins like Google/Email), opens Privy's confirm UI, and waits
+  // for the receipt — avoids the "User exited before wallet could be
+  // connected" failure mode when going through ethers BrowserProvider on a
+  // not-yet-warmed wallet.
+  const { sendTransaction } = useSendTransaction();
   const walletAddress = useMemo(
     () => (walletAddressProp ?? null)?.toLowerCase() || null,
     [walletAddressProp]
@@ -157,15 +163,39 @@ export function useBlok(walletAddressProp?: string | null): BlokState & Actions 
     const embedded = wallets.find((w) => w.walletClientType === "privy");
     if (!embedded) throw new Error("no embedded wallet — sign in first");
 
-    const provider = await embedded.getEthereumProvider();
-    const ethers = new BrowserProvider(provider);
-    const signer = await ethers.getSigner();
-    const blok = new Contract(publicConfig.blokAddress, BLOK_ABI, signer);
-    const tx = await blok.approve(publicConfig.gameRewardsAddress, MaxUint256);
-    await tx.wait();
+    // Make sure the embedded wallet is on MegaETH before we ask Privy to
+    // sign. For fresh Google/Email logins the wallet may default to mainnet
+    // until the first switchChain call, which then triggers a chain-switch
+    // popup mid-tx — easy to confuse with a hung approve.
+    try {
+      await embedded.switchChain(publicConfig.megaethChainId);
+    } catch {
+      // Non-fatal — sendTransaction below will surface the real error if
+      // the chain truly cannot be reached.
+    }
+
+    const iface = new Interface(BLOK_ABI);
+    const data = iface.encodeFunctionData("approve", [
+      publicConfig.gameRewardsAddress,
+      MaxUint256,
+    ]) as `0x${string}`;
+
+    const receipt = await sendTransaction(
+      {
+        to: publicConfig.blokAddress as `0x${string}`,
+        data,
+        chainId: publicConfig.megaethChainId,
+      },
+      {
+        header: "Approve $BLOK spending",
+        description:
+          "One-time approval so Block Blaster can spend your $BLOK on Nuke, Sweep reload, and wagers.",
+        buttonText: "Approve",
+      }
+    );
     await refresh();
-    return tx.hash as string;
-  }, [wallets, walletAddress, refresh]);
+    return receipt.transactionHash as string;
+  }, [wallets, walletAddress, refresh, sendTransaction]);
 
   return { ...state, refresh, approve, addOptimistic };
 }
