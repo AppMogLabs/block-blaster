@@ -11,7 +11,7 @@ import { useAuth } from "@/hooks/useAuth";
 
 export default function Home() {
   const router = useRouter();
-  const { isAuthenticated, login, handle, privyEnabled, walletAddress } = useAuth();
+  const { isAuthenticated, login, displayName, privyEnabled, walletAddress } = useAuth();
   // Defer all auth-dependent rendering until after mount — server render and
   // hydration can disagree on these values (e.g. when Privy's bundle lags the
   // env var update). Gating on `mounted` forces identical server/client markup.
@@ -70,7 +70,9 @@ export default function Home() {
             </button>
             <button onClick={handleSignIn} className="btn-primary">
               {mounted && isAuthenticated
-                ? `Continue as @${handle ?? "you"}`
+                ? displayName
+                  ? `Continue as ${displayName}`
+                  : "Continue"
                 : "Sign in"}
             </button>
           </div>
