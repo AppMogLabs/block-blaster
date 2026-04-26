@@ -464,7 +464,9 @@ export function GameView() {
           </GameErrorBoundary>
         </div>
 
-        {screen.kind === "loading" && <LoadingOverlay />}
+        {screen.kind === "loading" && (
+          <LoadingOverlay onRetry={() => setRunKey((k) => k + 1)} />
+        )}
         {screen.kind === "playing" && (
           <>
             <BankButton pending={pending} onBank={onBankClick} />
@@ -740,10 +742,19 @@ function SweepFuelBar({ fuel }: { fuel: number }) {
   );
 }
 
-function LoadingOverlay() {
+function LoadingOverlay({ onRetry }: { onRetry: () => void }) {
+  // Stuck-load watchdog: after 12s without the scene becoming ready, surface
+  // a retry button + diagnostic copy. Common causes are mobile network
+  // stalls and stale service-worker bundles.
+  const [stuck, setStuck] = useState(false);
+  useEffect(() => {
+    const t = setTimeout(() => setStuck(true), 12_000);
+    return () => clearTimeout(t);
+  }, []);
+
   return (
-    <div className="absolute inset-0 flex items-center justify-center bg-night-sky/80 backdrop-blur-sm">
-      <div className="flex flex-col items-center gap-4">
+    <div className="absolute inset-0 flex items-center justify-center bg-night-sky/80 backdrop-blur-sm p-6">
+      <div className="flex flex-col items-center gap-4 text-center">
         <div className="flex gap-2">
           {[...Array(5)].map((_, i) => (
             <span
@@ -757,6 +768,18 @@ function LoadingOverlay() {
           ))}
         </div>
         <div className="mono text-moon-white/70 text-sm">loading the chain…</div>
+        {stuck && (
+          <div className="mt-4 max-w-xs text-xs text-moon-white/60 leading-relaxed">
+            <p>Still loading. Mobile networks or a stale cached version can hang here.</p>
+            <button onClick={onRetry} className="btn-primary text-xs mt-3">
+              Retry
+            </button>
+            <p className="mt-3 text-[10px] text-moon-white/40">
+              If retry doesn't help: pull-to-refresh the page, or clear site
+              data for block-blaster.app and reopen.
+            </p>
+          </div>
+        )}
       </div>
       <style>{`
         @keyframes pulse {
