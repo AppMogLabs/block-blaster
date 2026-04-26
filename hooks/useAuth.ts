@@ -56,33 +56,20 @@ export function useAuth(): AuthState {
       privy.user?.wallet?.address ??
       privy.user?.linkedAccounts?.find((a) => a.type === "wallet")?.address ??
       null;
-    const accounts = privy.user?.linkedAccounts ?? [];
-    const twitterAccount = accounts.find((a) => a.type === "twitter_oauth") as
-      | { username?: string }
-      | undefined;
-    const googleAccount = accounts.find((a) => a.type === "google_oauth") as
-      | { name?: string | null; email?: string }
-      | undefined;
-    const emailAccount = accounts.find((a) => a.type === "email") as
-      | { address?: string }
-      | undefined;
+    const twitterAccount = privy.user?.linkedAccounts?.find(
+      (a) => a.type === "twitter_oauth"
+    ) as { username?: string } | undefined;
 
     const handle = twitterAccount?.username ?? null;
 
-    // Prefer the most personable identifier available. Trim Google "name" to
-    // first word so the button stays compact.
-    let displayName: string | null = null;
-    if (handle) {
-      displayName = `@${handle}`;
-    } else if (googleAccount?.name) {
-      displayName = googleAccount.name.split(/\s+/)[0] ?? googleAccount.name;
-    } else if (googleAccount?.email) {
-      displayName = googleAccount.email.split("@")[0] ?? null;
-    } else if (emailAccount?.address) {
-      displayName = emailAccount.address.split("@")[0] ?? null;
-    } else if (wallet) {
-      displayName = `${wallet.slice(0, 6)}…${wallet.slice(-4)}`;
-    }
+    // X is the only login method, so displayName is "@handle" if we have it,
+    // otherwise a wallet snippet for the rare case where the X profile has no
+    // username exposed.
+    const displayName = handle
+      ? `@${handle}`
+      : wallet
+        ? `${wallet.slice(0, 6)}…${wallet.slice(-4)}`
+        : null;
 
     return {
       isAuthenticated: privy.authenticated,

@@ -36,7 +36,7 @@ export function Providers({ children }: { children: React.ReactNode }) {
     <PrivyProvider
       appId={appId}
       config={{
-        loginMethods: ["twitter", "email", "google"],
+        loginMethods: ["twitter"],
         appearance: {
           theme: "dark",
           accentColor: "#F786C6",
@@ -45,13 +45,6 @@ export function Providers({ children }: { children: React.ReactNode }) {
         embeddedWallets: {
           createOnLogin: "users-without-wallets",
           requireUserPasswordOnCreate: false,
-        },
-        // We never use external wallets in this app — embedded wallet only.
-        // Disabling Coinbase Smart Wallet specifically silences the
-        // "configured chains are not supported by Coinbase Smart Wallet"
-        // warning, since Coinbase Smart Wallet doesn't know about MegaETH.
-        externalWallets: {
-          coinbaseWallet: { connectionOptions: "eoaOnly" },
         },
         // Any tx signed via the embedded wallet targets this chain.
         defaultChain: megaEthChain,
