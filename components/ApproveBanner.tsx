@@ -20,7 +20,7 @@ const DISMISS_KEY = "bb:approve-banner-dismissed";
  */
 export function ApproveBanner() {
   const { isAuthenticated, walletAddress } = useAuth();
-  const { approved, ready, approve, refresh } = useBlok(walletAddress);
+  const { approved, ready, walletWarmup, approve, refresh } = useBlok(walletAddress);
   const toast = useToast();
   const [submitting, setSubmitting] = useState(false);
   // Settle delay: the hook briefly has `ready: true, approved: false`
@@ -107,10 +107,23 @@ export function ApproveBanner() {
       <div className="flex flex-col gap-1 shrink-0">
         <button
           onClick={handleApprove}
-          disabled={submitting}
+          disabled={submitting || walletWarmup !== "ready"}
           className="btn-primary text-xs whitespace-nowrap disabled:opacity-50"
+          title={
+            walletWarmup === "pending"
+              ? "Wallet is provisioning — wait a moment"
+              : walletWarmup === "failed"
+                ? "Wallet failed to connect — refresh the page"
+                : undefined
+          }
         >
-          {submitting ? "approving…" : "Approve"}
+          {submitting
+            ? "approving…"
+            : walletWarmup === "pending"
+              ? "preparing…"
+              : walletWarmup === "failed"
+                ? "wallet error"
+                : "Approve"}
         </button>
         <button
           onClick={handleSkip}

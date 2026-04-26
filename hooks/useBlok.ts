@@ -6,6 +6,8 @@ import { Interface, MaxUint256 } from "ethers";
 import { publicConfig } from "@/lib/config";
 import { BLOK_ABI } from "@/lib/contracts";
 
+export type WalletWarmupState = "pending" | "ready" | "failed";
+
 export type BlokState = {
   /** Current $BLOK balance. */
   balance: number;
@@ -23,6 +25,15 @@ export type BlokState = {
   walletAddress: string | null;
   /** True iff the player has granted an unlimited allowance to GameRewards. */
   approved: boolean;
+  /**
+   * Embedded-wallet warm-up state. For X login the wallet is connected by
+   * the time the user lands on the home screen. For Email/Google the wallet
+   * is created lazily and `useWallets()` returns it before it's actually
+   * ready to sign. We proactively wait for `isConnected()` and switch the
+   * chain so the first signing call (approve) doesn't hang on Privy's
+   * "connect" modal. UI gates the Approve button on `walletWarmup === "ready"`.
+   */
+  walletWarmup: WalletWarmupState;
   error: string | null;
 };
 
@@ -71,6 +82,7 @@ export function useBlok(walletAddressProp?: string | null): BlokState & Actions 
     activeWagerMode: 0,
     walletAddress: null,
     approved: false,
+    walletWarmup: "pending",
     error: null,
   }));
 
@@ -91,7 +103,7 @@ export function useBlok(walletAddressProp?: string | null): BlokState & Actions 
       if (!res.ok) throw new Error(data.error ?? `balance fetch ${res.status}`);
       // Skip stale updates if the wallet changed mid-fetch.
       if (currentWalletRef.current !== walletAddress) return;
-      setState({
+      setState((prev) => ({
         balance: Number(data.balance ?? 0),
         allowance: data.allowance === "max" ? "max" : Number(data.allowance ?? 0),
         ready: true,
@@ -100,8 +112,10 @@ export function useBlok(walletAddressProp?: string | null): BlokState & Actions 
         activeWagerMode: Number(data.activeWagerMode ?? 0),
         walletAddress,
         approved: data.allowance === "max" || Number(data.allowance) > 0,
+        // Preserve warm-up state — it's tracked by a separate effect.
+        walletWarmup: prev.walletWarmup,
         error: null,
-      });
+      }));
     } catch (e) {
       const msg = e instanceof Error ? e.message : "balance error";
       setState((s) => ({ ...s, ready: true, error: msg }));
@@ -111,6 +125,60 @@ export function useBlok(walletAddressProp?: string | null): BlokState & Actions 
   useEffect(() => {
     refresh();
   }, [refresh]);
+
+  // Embedded-wallet warm-up: drive the wallet to a fully-signable state
+  // BEFORE the user is offered any signing UI. Without this, Email/Google
+  // sessions return a wallet object from useWallets() that is "present"
+  // but not yet connected — calling sendTransaction on it makes Privy open
+  // a connect-wallet modal that can hang on mobile. After this effect
+  // resolves to "ready", the approve button can fire reliably.
+  useEffect(() => {
+    if (!walletAddress) {
+      setState((s) => ({ ...s, walletWarmup: "pending" }));
+      return;
+    }
+    const embedded = wallets.find((w) => w.walletClientType === "privy");
+    if (!embedded) {
+      // Wallet object hasn't appeared yet — Privy may still be provisioning.
+      // Stay "pending"; this effect re-runs as `wallets` updates.
+      setState((s) => ({ ...s, walletWarmup: "pending" }));
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      try {
+        const connected = await Promise.race([
+          embedded.isConnected(),
+          new Promise<boolean>((res) => setTimeout(() => res(false), 12_000)),
+        ]);
+        if (cancelled) return;
+        if (!connected) {
+          setState((s) => ({ ...s, walletWarmup: "failed" }));
+          return;
+        }
+        // Best-effort chain switch — bound at 5s. The 1.92 Privy SDK
+        // returns immediately for already-correct chains, so this is fast
+        // on the warm path.
+        try {
+          await Promise.race([
+            embedded.switchChain(publicConfig.megaethChainId),
+            new Promise<void>((res) => setTimeout(res, 5_000)),
+          ]);
+        } catch {
+          // Non-fatal — we'll fail loudly in approve() if the chain truly
+          // isn't reachable.
+        }
+        if (cancelled) return;
+        setState((s) => ({ ...s, walletWarmup: "ready" }));
+      } catch {
+        if (cancelled) return;
+        setState((s) => ({ ...s, walletWarmup: "failed" }));
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [wallets, walletAddress]);
 
   // One-shot faucet drip: hit /api/faucet-drip whenever we have a fresh
   // wallet. The endpoint is rate-limited + on-chain-balance-gated, so
@@ -163,36 +231,26 @@ export function useBlok(walletAddressProp?: string | null): BlokState & Actions 
     const embedded = wallets.find((w) => w.walletClientType === "privy");
     if (!embedded) throw new Error("no embedded wallet — sign in first");
 
-    // Wait for the wallet to actually be connected before doing anything.
-    // For brand-new email/Google sessions Privy provisions the wallet
-    // asynchronously; calling switchChain or sendTransaction before it's
-    // ready is what produces the silent multi-minute hang.
-    try {
+    // Pre-flight: the warm-up effect above already ran isConnected +
+    // switchChain. If something went wrong we surface a clear error here
+    // rather than letting Privy's provider open a "connect wallet" modal
+    // that could hang. Belt-and-suspenders: also probe isConnected one
+    // more time with a short timeout in case the wallet just provisioned.
+    if (state.walletWarmup === "failed") {
+      throw new Error(
+        "wallet not ready — refresh the page or sign out and back in"
+      );
+    }
+    if (state.walletWarmup !== "ready") {
       const connected = await Promise.race([
         embedded.isConnected(),
-        new Promise<boolean>((res) => setTimeout(() => res(false), 8000)),
+        new Promise<boolean>((res) => setTimeout(() => res(false), 4000)),
       ]);
       if (!connected) {
         throw new Error(
-          "wallet not ready — give it a few seconds and try again"
+          "wallet still provisioning — wait a moment and try again"
         );
       }
-    } catch (e) {
-      if (e instanceof Error && e.message.includes("wallet not ready")) throw e;
-      // Other isConnected failures are non-fatal; sendTransaction will
-      // surface its own error.
-    }
-
-    // Best-effort chain switch. Bound by 5s so a hung switch can't block
-    // forever — sendTransaction below also passes chainId so the right
-    // chain is selected even if this no-ops.
-    try {
-      await Promise.race([
-        embedded.switchChain(publicConfig.megaethChainId),
-        new Promise<void>((res) => setTimeout(res, 5000)),
-      ]);
-    } catch {
-      // Non-fatal.
     }
 
     const iface = new Interface(BLOK_ABI);
@@ -232,7 +290,7 @@ export function useBlok(walletAddressProp?: string | null): BlokState & Actions 
     ])) as { transactionHash: string };
     await refresh();
     return receipt.transactionHash;
-  }, [wallets, walletAddress, refresh, sendTransaction]);
+  }, [wallets, walletAddress, refresh, sendTransaction, state.walletWarmup]);
 
   return { ...state, refresh, approve, addOptimistic };
 }
