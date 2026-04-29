@@ -464,8 +464,16 @@ export class GameScene extends Phaser.Scene {
     this.sfx(SFX.HIT, { volume: b.isRare ? 0.75 : 0.5, rate: pitchBoost });
 
     const multiplier = this.streak >= 10 ? 3 : this.streak >= 5 ? 2 : 1;
+    const gained = base * multiplier;
     // Points land in the "pending" pot — at risk until the player banks.
-    this.pending += base * multiplier;
+    this.pending += gained;
+
+    // Gold/rare destruction → flashy +N $BLOK celebration. Cosmetic only;
+    // the underlying scoring is unchanged. React picks up the event and
+    // animates coins flying to the $BLOK / banked chip in the HUD.
+    if (b.isRare) {
+      this.goldAwardFx(b.x, b.y, gained);
+    }
 
     // Heat milestones — streak-based (resets on bank/miss)
     if (HEAT_THRESHOLDS.includes(this.streak)) {
@@ -745,6 +753,41 @@ export class GameScene extends Phaser.Scene {
       this.vignetteLayer.fillRect(0, 0, width, height * 0.2);
       this.vignetteLayer.fillRect(0, height * 0.8, width, height * 0.2);
     }
+  }
+
+  /**
+   * Gold-block celebration: bigger gold-tinted particle burst, centre-screen
+   * flash text showing the awarded points as `+N $BLOK`, a chime, and an
+   * event for React so it can animate coins flying to the HUD chip. Pure
+   * cosmetic — the actual scoring already happened in scoreDestroyed.
+   */
+  private goldAwardFx(x: number, y: number, amount: number) {
+    // Larger, gold-tinted burst on top of Block.destroyWithBurst's regular one.
+    const sparkKey = this.textures.exists("spark") ? "spark" : "__DEFAULT";
+    const burst = this.add.particles(x, y, sparkKey, {
+      lifespan: { min: 500, max: 900 },
+      speed: { min: 180, max: 420 },
+      angle: { min: 0, max: 360 },
+      scale: { start: sparkKey === "spark" ? 0.9 : 1.8, end: 0 },
+      alpha: { start: 1, end: 0 },
+      rotate: { start: 0, end: 360 },
+      quantity: 22,
+      tint: [0xffd700, 0xffed4a, 0xffffff],
+      blendMode: Phaser.BlendModes.ADD,
+      emitting: false,
+    });
+    burst.explode(22);
+    this.time.delayedCall(1000, () => burst.destroy());
+
+    this.flashText(`+${amount} $BLOK`, 0xffd700);
+
+    // Stand-in chime — reuse the streak SFX at higher pitch + slight volume
+    // bump. Swap for a dedicated coin sample when one's available (see
+    // game/config/sounds.ts).
+    this.sfx(SFX.STREAK, { volume: 0.7, rate: 1.5 });
+
+    // Hand off to React so the DOM-side coin scatter can fly toward the HUD.
+    this.cfg.bus.emit(GAME_EVENTS.GOLD_AWARD, { x, y, amount });
   }
 
   private flashText(msg: string, colour: number) {

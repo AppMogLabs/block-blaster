@@ -30,6 +30,12 @@ export type GameCanvasProps = {
   onNukeProgress?: (kills: number, threshold: number) => void;
   onSweepFuel?: (fuel: number, available: boolean) => void;
   onBank?: (banked: number, justBanked: number) => void;
+  /**
+   * Fired when a rare/gold block is destroyed. `x`/`y` are viewport coords
+   * (already translated from the canvas) so React can drop coin sprites
+   * directly onto the page. `amount` is the multiplied points awarded.
+   */
+  onGoldAward?: (p: { x: number; y: number; amount: number }) => void;
   registerHandle?: (h: GameCanvasHandle | null) => void;
 };
 
@@ -79,6 +85,24 @@ export function GameCanvas(props: GameCanvasProps) {
       );
       bus.on(GAME_EVENTS.BANK, (p: { banked: number; justBanked: number }) =>
         cbRef.current.onBank?.(p.banked, p.justBanked)
+      );
+      bus.on(
+        GAME_EVENTS.GOLD_AWARD,
+        (p: { x: number; y: number; amount: number }) => {
+          // Translate from canvas-internal coords to viewport coords so the
+          // React overlay can drop coin sprites at the exact screen point.
+          const host = hostRef.current;
+          if (!host) return;
+          const rect = host.getBoundingClientRect();
+          // Phaser uses CSS-pixel coords already (Scale.RESIZE keeps the
+          // canvas internal size matching the display size), so just add
+          // the host's top-left offset.
+          cbRef.current.onGoldAward?.({
+            x: rect.left + p.x,
+            y: rect.top + p.y,
+            amount: p.amount,
+          });
+        }
       );
 
       const width = hostRef.current.clientWidth;

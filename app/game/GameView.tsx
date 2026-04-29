@@ -12,6 +12,7 @@ import { MuteToggle } from "@/components/ui/MuteToggle";
 import { WalletChip } from "@/components/ui/WalletChip";
 import { pickWinPhrase, pickDiePhrase } from "@/lib/endGameMessaging";
 import { GameErrorBoundary } from "@/components/game/GameErrorBoundary";
+import { CoinFlight, type GoldAward } from "@/components/game/CoinFlight";
 import { useBlok } from "@/hooks/useBlok";
 import { useToast } from "@/components/ui/Toast";
 import { txLink } from "@/lib/txLink";
@@ -68,6 +69,11 @@ export function GameView() {
   // Guest-mid-run sign-in flow: clicking any "SIGN IN" affordance pauses the
   // scene and prompts the player to end this run + sign in. Resumes on cancel.
   const [showSignInConfirm, setShowSignInConfirm] = useState(false);
+  // Gold-block coin animation: ref points to the $BLOK / banked HUD chip
+  // (whichever the auth state renders); awards is the list of in-flight
+  // burst events the CoinFlight component is animating.
+  const blokChipRef = useRef<HTMLDivElement | null>(null);
+  const [goldAwards, setGoldAwards] = useState<GoldAward[]>([]);
   const handleRef = useRef<GameCanvasHandle | null>(null);
   const lastMultiplier = useRef(1);
 
@@ -216,6 +222,21 @@ export function GameView() {
   const onSweepFuel = useCallback((f: number, a: boolean) => {
     setSweepFuel(f);
     setSweepAvailable(a);
+  }, []);
+  const onGoldAward = useCallback(
+    (p: { x: number; y: number; amount: number }) => {
+      // Each award gets a unique id so CoinFlight can dedupe across re-renders.
+      const id = Date.now() + Math.random();
+      setGoldAwards((prev) => [...prev, { id, ...p }]);
+    },
+    []
+  );
+  const onCoinArrive = useCallback((id: number) => {
+    // The HUD chip already runs the milestonePop animation when bankFlash
+    // changes — reuse it as the coin "tick" on arrival.
+    setBankFlash((n) => n + 1);
+    // Drop the award from state so the list doesn't grow unbounded.
+    setGoldAwards((prev) => prev.filter((a) => a.id !== id));
   }, []);
   const promptEndAndSignIn = useCallback(() => {
     handleRef.current?.pause();
@@ -401,6 +422,7 @@ export function GameView() {
             // regardless of readiness so the number tracks player actions
             // without waiting for the reconcile read.
             <div
+              ref={blokChipRef}
               key={`bal-${bankFlash}`}
               className="mono transition-transform animate-[milestonePop_0.45s_ease-out]"
               title="Your live $BLOK wallet balance"
@@ -412,6 +434,7 @@ export function GameView() {
             // Guest fallback: local "banked this run" counter since a
             // guest has no wallet to hold minted $BLOK.
             <div
+              ref={blokChipRef}
               key={`bank-${bankFlash}`}
               className="mono transition-transform animate-[milestonePop_0.45s_ease-out]"
             >
@@ -470,6 +493,7 @@ export function GameView() {
               onNukeProgress={onNukeProgress}
               onSweepFuel={onSweepFuel}
               onBank={onBank}
+              onGoldAward={onGoldAward}
               registerHandle={(h) => (handleRef.current = h)}
             />
           </GameErrorBoundary>
@@ -520,6 +544,11 @@ export function GameView() {
             onRetry={retry}
           />
         )}
+        <CoinFlight
+          awards={goldAwards}
+          targetRef={blokChipRef}
+          onArrive={onCoinArrive}
+        />
         {showSignInConfirm && (
           <div
             className="absolute inset-0 z-50 flex items-center justify-center bg-night-sky/85 backdrop-blur-sm p-6"

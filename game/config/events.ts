@@ -17,6 +17,13 @@ export const GAME_EVENTS = {
   SWEEP_FUEL: "sweepFuel",
   /** Player committed pending → banked. Game continues. */
   BANK: "bank",
+  /**
+   * Rare/gold block destroyed. Triggers the coin-scatter animation in
+   * React. `x`/`y` are canvas-pixel coords; GameCanvas converts to viewport
+   * coords before forwarding to the React callback. `amount` is the
+   * multiplied points awarded for that destruction.
+   */
+  GOLD_AWARD: "goldAward",
 } as const;
 
 export type GameEventPayload = {
@@ -31,4 +38,5 @@ export type GameEventPayload = {
   nukeProgress: { kills: number; threshold: number };
   sweepFuel: { fuel: number; available: boolean };
   bank: { banked: number; justBanked: number };
+  goldAward: { x: number; y: number; amount: number };
 };
