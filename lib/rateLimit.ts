@@ -58,6 +58,13 @@ function kvLimiter(
     Authorization: `Bearer ${token}`,
     "Content-Type": "application/json",
   };
+  // Conservative in-memory backstop used only when KV is unreachable. Caps
+  // every endpoint at 2 requests per minute per key — generous enough that
+  // an honest user mid-session probably isn't blocked, tight enough that
+  // an attacker can't drain the backend wallet via thousands of unbounded
+  // requests during a KV outage. Previous behaviour was fail-open (always
+  // allow), which removed all abuse protection during outages.
+  const fallback = memoryLimiter(name, 2, 60);
   return {
     async check(key: string) {
       // Namespace the KV key per-limiter so mintRateLimit's counter
@@ -79,8 +86,9 @@ function kvLimiter(
         });
         if (!resp.ok) {
           log.error("kv_fetch_failed", { status: resp.status });
-          // Fail-open: don't block legitimate users when KV is down.
-          return { ok: true };
+          // KV down → drop to the conservative in-memory fallback so we
+          // still have *some* abuse protection.
+          return fallback.check(key);
         }
         const data = (await resp.json()) as Array<{ result: number | string | null }>;
         const count = Number(data[0]?.result ?? 0);
@@ -103,7 +111,7 @@ function kvLimiter(
         return { ok: true };
       } catch (e) {
         log.error("kv_exception", { error: e instanceof Error ? e.message : "unknown" });
-        return { ok: true };
+        return fallback.check(key);
       }
     },
   };
@@ -120,10 +128,13 @@ export function createRateLimit(opts: {
   if (url && token) {
     return kvLimiter(opts.name, url, token, opts.limit, opts.windowSec);
   }
+  // Hard fail in production. Same reasoning as sessionStore: per-instance
+  // in-memory rate limiting collapses across Vercel serverless instances
+  // and an attacker can fan out across instances to bypass any limit.
   if (process.env.NODE_ENV === "production") {
-    log.warn("no_kv_in_prod", {
-      hint: "Set KV_REST_API_URL + KV_REST_API_TOKEN to enable distributed rate limiting.",
-    });
+    throw new Error(
+      `rateLimit: KV not configured in production. Set KV_REST_API_URL + KV_REST_API_TOKEN before deploying.`
+    );
   }
   return memoryLimiter(opts.name, opts.limit, opts.windowSec);
 }

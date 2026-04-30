@@ -132,10 +132,14 @@ export async function POST(req: NextRequest) {
     // wait on this one — it's a non-critical side effect and adds latency.
     const scoreTx = await leaderboard.submitScore(walletAddress, newTotal, modeId);
     // Record the bank for PB + wager settlement. Uses cumulative newTotal
-    // so PB tracks the RUN total, not a single bank.
+    // so PB tracks the RUN total, not a single bank. Await confirmation —
+    // without this, a revert (e.g. wager-settlement edge case) returns 200
+    // here and the client believes the bank fully settled when on-chain
+    // PB / wager state may still be in the prior state.
     let recordTxHash: string | null = null;
     if (gameRewards) {
       const recordTx = await gameRewards.recordBank(walletAddress, modeId, newTotal);
+      await recordTx.wait();
       recordTxHash = recordTx.hash;
     }
 

@@ -117,10 +117,14 @@ function pickStore(): Store {
   const url = process.env.KV_REST_API_URL;
   const token = process.env.KV_REST_API_TOKEN;
   if (url && token) return kvStore(url, token);
+  // Hard fail in production. Without KV the in-memory Map is per-instance,
+  // which means a session token can be replayed across Vercel serverless
+  // instances and the single-use guarantee collapses → double-mint
+  // exposure. Crashing here is loud but safe; an empty memory store
+  // silently fooling production is the failure mode we want to prevent.
   if (process.env.NODE_ENV === "production") {
-    console.warn(
-      "[session] No KV configured in production — using in-memory store. " +
-        "Set KV_REST_API_URL + KV_REST_API_TOKEN (Vercel KV or Upstash) to fix."
+    throw new Error(
+      "sessionStore: KV not configured in production. Set KV_REST_API_URL + KV_REST_API_TOKEN (Vercel KV or Upstash) before deploying."
     );
   }
   return memoryStore();

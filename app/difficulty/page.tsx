@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useRef, useState } from "react";
+import { useIdentityToken } from "@privy-io/react-auth";
 import { DIFFICULTY_MODES } from "@/lib/difficulty";
 import { BlockTicker } from "@/components/ui/BlockTicker";
 import { WalletChip } from "@/components/ui/WalletChip";
@@ -18,6 +19,9 @@ export default function DifficultyPage() {
   const { handle, isAuthenticated, walletAddress } = useAuth();
   const blok = useBlok(walletAddress);
   const toast = useToast();
+  // Identity token used to authenticate /api/wager/forfeit so an attacker
+  // can't grief-burn another player's active wager by guessing addresses.
+  const { identityToken } = useIdentityToken();
   const [pendingMode, setPendingMode] = useState<number | null>(null);
   const [placing, setPlacing] = useState(false);
   // Ref lock — React's `placing` state is async and a fast repeat click
@@ -105,10 +109,17 @@ export default function DifficultyPage() {
             onResume={() => router.push(`/game?mode=${blok.activeWagerMode}`)}
             onForfeit={async () => {
               if (!walletAddress) return;
+              if (!identityToken) {
+                toast.push("error", "auth not ready — wait a moment and retry");
+                return;
+              }
               try {
                 const res = await fetch("/api/wager/forfeit", {
                   method: "POST",
-                  headers: { "content-type": "application/json" },
+                  headers: {
+                    "content-type": "application/json",
+                    authorization: `Bearer ${identityToken}`,
+                  },
                   body: JSON.stringify({ walletAddress }),
                 });
                 const data = await res.json();

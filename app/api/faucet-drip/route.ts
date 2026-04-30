@@ -28,8 +28,11 @@ const log = logger("faucet");
  * POST { walletAddress }
  */
 
-const DRIP_AMOUNT = "0.001"; // ETH
-const MIN_BALANCE = "0.0005"; // below this → drip
+// Sized for an embedded-wallet approve() call on MegaETH (base fee 0.001 gwei,
+// ~50k gas → < 1e-7 ETH). 0.0001 leaves ~1000x headroom and cuts mainnet
+// sponsorship cost 10x vs the previous 0.001.
+const DRIP_AMOUNT = "0.0001"; // ETH
+const MIN_BALANCE = "0.00005"; // below this → drip
 
 export async function POST(req: NextRequest) {
   let body;

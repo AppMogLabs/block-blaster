@@ -74,6 +74,13 @@ export function ApproveBanner() {
     }
   };
 
+  // Show the spender contract address so users can verify what they're
+  // approving against the canonical GameRewards address. Defends against a
+  // build-time supply-chain compromise that swaps the env var — the user
+  // can spot a mismatch before signing.
+  const spender = publicConfig.gameRewardsAddress;
+  const spenderShort = `${spender.slice(0, 6)}…${spender.slice(-4)}`;
+
   return (
     <div className="fixed top-3 left-1/2 -translate-x-1/2 z-[500] w-[min(92vw,620px)] px-4 py-3 rounded-lg glass border border-pink/40 flex items-center gap-4">
       <div className="flex-1 text-xs text-moon-white/80">
@@ -83,6 +90,19 @@ export function ApproveBanner() {
         Allow Block Blaster to spend <span className="mono">$BLOK</span> for
         in-game actions (Nuke, Sweep reload, Wagers). Required before your
         first action.
+        <div className="mt-1 text-[10px] text-moon-white/50">
+          Spender:{" "}
+          <a
+            href={`${publicConfig.megaethExplorer}/address/${spender}`}
+            target="_blank"
+            rel="noreferrer"
+            className="mono underline decoration-dotted hover:decoration-solid"
+            title={spender}
+          >
+            {spenderShort}
+          </a>{" "}
+          (GameRewards)
+        </div>
       </div>
       <button
         onClick={handleApprove}

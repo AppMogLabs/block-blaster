@@ -106,7 +106,12 @@ export function useBlok(walletAddressProp?: string | null): BlokState & Actions 
         activeWagerAmount: Number(data.activeWagerAmount ?? 0),
         activeWagerMode: Number(data.activeWagerMode ?? 0),
         walletAddress,
-        approved: data.allowance === "max" || Number(data.allowance) > 0,
+        // Strict: only count "max" as approved. A residual partial allowance
+        // from a prior (non-max) approve would let the UI gate pass while
+        // transferFrom in the contract still reverts on insufficient
+        // allowance. The current approve() always grants MaxUint256, so
+        // legitimate users land at "max" and stay there.
+        approved: data.allowance === "max",
         error: null,
       });
     } catch (e) {
@@ -186,34 +191,41 @@ export function useBlok(walletAddressProp?: string | null): BlokState & Actions 
     // Hard timeout on the actual signing call. If Privy's modal never
     // surfaces (mobile popup blocker, hung provisioning) we fail fast
     // with an actionable error instead of spinning forever.
-    const receipt = (await Promise.race([
-      sendTransaction(
-        {
-          to: publicConfig.blokAddress as `0x${string}`,
-          data,
-          chainId: publicConfig.megaethChainId,
-        },
-        {
-          header: "Approve $BLOK spending",
-          description:
-            "One-time approval so Block Blaster can spend your $BLOK on Nuke, Sweep reload, and wagers.",
-          buttonText: "Approve",
-        }
-      ),
-      new Promise<never>((_, rej) =>
-        setTimeout(
-          () =>
-            rej(
-              new Error(
-                "approve timed out — check the wallet popup, or skip approve and play normally"
-              )
-            ),
-          45_000
-        )
-      ),
-    ])) as { transactionHash: string };
-    await refresh();
-    return receipt.transactionHash;
+    try {
+      const receipt = (await Promise.race([
+        sendTransaction(
+          {
+            to: publicConfig.blokAddress as `0x${string}`,
+            data,
+            chainId: publicConfig.megaethChainId,
+          },
+          {
+            header: "Approve $BLOK spending",
+            description:
+              "One-time approval so Block Blaster can spend your $BLOK on Nuke, Sweep reload, and wagers.",
+            buttonText: "Approve",
+          }
+        ),
+        new Promise<never>((_, rej) =>
+          setTimeout(
+            () =>
+              rej(
+                new Error(
+                  "approve timed out — check the wallet popup, or skip approve and play normally"
+                )
+              ),
+            45_000
+          )
+        ),
+      ])) as { transactionHash: string };
+      return receipt.transactionHash;
+    } finally {
+      // Always refresh — covers the case where sendTransaction lost the
+      // race against our 45s timeout but the underlying tx still landed
+      // on-chain after we'd given up. Without this the user keeps seeing
+      // the Approve banner forever even though they're approved.
+      await refresh().catch(() => undefined);
+    }
   }, [wallets, walletAddress, refresh, sendTransaction]);
 
   return { ...state, refresh, approve, addOptimistic };

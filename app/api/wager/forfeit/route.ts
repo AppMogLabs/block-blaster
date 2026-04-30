@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getChain } from "@/lib/chain";
 import { wagerRateLimit } from "@/lib/rateLimit";
 import { logger, shortWallet } from "@/lib/logger";
+import { verifyRequest } from "@/lib/privyAuth";
 
 export const runtime = "nodejs";
 
@@ -13,13 +14,15 @@ const log = logger("wager.forfeit");
  * on an earlier death — without this the user would have no way to
  * recover their stuck wager.
  *
- * Security: no session token is used (the stuck state is often caused
- * by a bad session in the first place, so requiring one would be
- * circular). We rely on the contract's own guard — only a wager belonging
- * to `walletAddress` can be burned here. Grief cost on testnet is
- * tolerable; pre-prod we'd add a Privy signature check.
+ * Security: requires a Privy identity token in the Authorization header,
+ * and the embedded wallet in the verified claims must match the
+ * walletAddress in the body. Without this, the endpoint accepted any 0x…
+ * address and any caller could burn any player's active wager (grief
+ * vector). The contract still guards `recordDeath` with onlyOwner so the
+ * tx is signed by our backend wallet, but the endpoint authorises which
+ * player's wager gets burned.
  *
- * POST { walletAddress }
+ * POST { walletAddress }, Authorization: Bearer <privy-id-token>
  */
 export async function POST(req: NextRequest) {
   let body;
@@ -31,6 +34,23 @@ export async function POST(req: NextRequest) {
   const { walletAddress } = body as { walletAddress?: string };
   if (!walletAddress || !/^0x[a-fA-F0-9]{40}$/.test(walletAddress)) {
     return NextResponse.json({ error: "walletAddress required" }, { status: 400 });
+  }
+
+  const auth = await verifyRequest(req);
+  if (!auth) {
+    return NextResponse.json(
+      { error: "sign in to forfeit a wager" },
+      { status: 401 }
+    );
+  }
+  if (
+    !auth.walletAddress ||
+    auth.walletAddress !== walletAddress.toLowerCase()
+  ) {
+    return NextResponse.json(
+      { error: "wallet does not belong to authenticated user" },
+      { status: 403 }
+    );
   }
 
   const rl = await wagerRateLimit().check(walletAddress.toLowerCase());

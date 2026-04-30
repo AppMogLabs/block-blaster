@@ -42,38 +42,36 @@ Last session ended at commit `a025957` (TESTING.md + dead-code cleanup + tx-hash
 6. **React component tests** — the optimistic balance / nuke gate / wager flow have no unit coverage. `@testing-library/react` + jsdom setup.
 7. **Mobile sweep gesture polish** — user tested on iOS, but if reports come in about hold-to-sweep being awkward, consider tap-and-hold-anywhere semantics.
 
-## Pre-mainnet checklist (do NOT launch real-money without these)
+## Pre-mainnet checklist
 
-Captured from the pre-public-test audit (commit `81a39f9` + this session). Items below are tolerated on testnet; every one is a real exposure if the chain has actual economic value.
+Most of the original checklist was shipped as a batch ahead of mainnet (this commit). What's left is design / verification work that can't be solved by code alone.
 
-### Auth & abuse
-- [ ] `/api/wager/forfeit` — currently anyone can POST `{walletAddress}` and burn any player's active wager. Add Privy identity-token verification (same pattern as `/api/faucet-drip`, see `lib/privyAuth.ts`). NOTES already flagged this; the audit re-flagged as grief-vector, not just "not signed".
-- [ ] `/api/session/validate` — no rate limit. Free signature-verification oracle. Add `await sessionRateLimit().check(ip)` to match `/api/session`.
-- [ ] `/api/faucet-drip` — if it survives the gas-sponsorship migration, drop drip amount from `0.001` ETH to `0.0001` ETH (`DRIP_AMOUNT` in `app/api/faucet-drip/route.ts`). Cuts mainnet sponsorship cost 10x with adequate headroom for an approve() at MegaETH gas prices. Better: delete the endpoint entirely once sponsorship is verified working end-to-end.
-- [ ] Privy gas-sponsorship policy attached + tested. Policy created during testnet bring-up restricts sponsored txs to `approve(GameRewards, *)` on BlokToken. Verify the policy is selected on the Gas sponsorship page (not just created in Policies) and that an unrelated tx (e.g., a transfer) gets refused sponsorship.
-- [ ] Verify default policy semantics are deny-by-default. With one ALLOW rule and default-deny, only the matching tx is sponsored. With default-allow, every tx is sponsored — useless. Privy may surface this as a top-level toggle.
+### Done in code (this batch)
+- ✅ `/api/wager/forfeit` — Privy identity-token auth required; wallet must match auth claim
+- ✅ `/api/session/validate` — rate-limited via `sessionRateLimit`
+- ✅ Drip amount `0.001 → 0.0001` ETH (`MIN_BALANCE` adjusted)
+- ✅ `approved` predicate strict — only `=== "max"` counts
+- ✅ ApproveBanner displays spender contract address with explorer link
+- ✅ `lib/sessionStore.ts` + `lib/rateLimit.ts` hard-fail in production if KV missing
+- ✅ Rate limiter falls back to a conservative 2/min/key in-memory cap on KV outage instead of fail-open
+- ✅ `/api/bank` awaits `recordTx.wait()` before 200
+- ✅ `approve()` refreshes balance in `finally` so a late-landing tx clears the banner
+- ✅ `?mode=99` URL no longer crashes — invalid values fall back to Easy
 
-### Economic / state
-- [ ] Score plausibility ceiling — Real-time mode allows up to ~163k $BLOK per 30s run (`lib/difficulty.ts:maxPlausibleScore`, slack=1.25, peakComboMultiplier=3, durationSec+5 cap). Calibrate against $BLOK token economics before any DEX listing or NFT redemption.
-- [ ] First-bank ceiling shape — a player can legitimately bank zero for 34s then bank the maximum in one shot. The system can't distinguish "earned over 30s" from "teleported to max at second 34". If $BLOK has value, consider per-bank-elapsed ceilings, not just session-elapsed.
-- [ ] Tighten `approved` predicate in `useBlok.ts:102`. Currently treats any allowance > 0 as approved; partial allowance from a prior session passes the gate then transferFrom reverts. Change to `=== "max"` or `>= 100`.
-- [ ] Display approve spender address in the Approve UI (`components/ApproveBanner.tsx`). MaxUint256 grant to GameRewards is sensitive — show the address users are approving so a build-time supply-chain compromise can't silently swap the spender.
+### Still required for mainnet (not shipped)
+- [ ] **Top up `BACKEND_WALLET_PRIVATE_KEY` mainnet ETH** sufficient for `0.0001 × expected_users + headroom for game ops`. ~`0.2 ETH` for 1k launch users.
+- [ ] **Backend wallet balance monitoring** — cron/alert when balance dips below threshold. Without it, drips silently 500 and gameplay locks.
+- [ ] **Confirm `KV_REST_API_URL` + `KV_REST_API_TOKEN` set in mainnet Vercel env** (separate from preview/testnet env). The hard-fail above will crash boot otherwise.
+- [ ] **Confirm `PRIVY_APP_SECRET` set in mainnet Vercel env**. JWT auth on `/api/faucet-drip` and `/api/wager/forfeit` will 500 otherwise.
+- [ ] **Replace bug-reporting placeholder in TESTING.md** with the real channel.
+- [ ] **Smoke-test the full new-user flow on mainnet** with a fresh X account: sign in → welcome modal → approve → play → bank → win → leaderboard → wager. End-to-end, no errors.
 
-### Resilience / correctness
-- [ ] Harden `lib/sessionStore.ts` and `lib/rateLimit.ts` to throw in production if KV env vars are missing, instead of silently falling back to in-process Map. Single-use session guarantee collapses across serverless instances if KV is gone.
-- [ ] Rate limiter fails open on KV error. Implement a conservative local fallback (e.g., 2/min in-memory) instead of returning `{ ok: true }` unconditionally on KV failure (`lib/rateLimit.ts:80-107`).
-- [ ] `/api/bank` doesn't `await recordTx.wait()` before responding 200. If `recordBank` reverts on-chain (e.g., wager settlement edge case), the client believes the bank settled. Either await the wait or return a separate status field.
-- [ ] `getChain()` singleton in `lib/chain.ts` never invalidates. One MegaETH RPC blip pins all routes to a dead provider until cold start. Add a health check or reset path on `CALL_EXCEPTION`.
-- [ ] `approve()` 45s timeout in `useBlok.ts` doesn't `refresh()` the balance after timing out. Late-landing tx leaves the user staring at the banner forever. Add `refresh()` in a finally block.
-- [ ] `?mode=99` in the URL crashes the game route (`app/game/GameView.tsx:34`). Validate `modeId` before the type cast. Cosmetic on testnet, error-page on mainnet.
-- [ ] Nuke visual fires before the API call resolves (`app/game/GameView.tsx`). Disconnect-WiFi exploit gives a free nuke. Tolerable on testnet (no real $BLOK lost) — for mainnet, await the API or add a revert path.
-
-### Pre-launch verification
-- [ ] Smoke-test the full new-user flow on a fresh X account: sign in → welcome modal → approve (sponsored, no user gas) → play → bank → win → leaderboard → wager. End-to-end, no errors, no banner stuck.
-- [ ] Top up `BACKEND_WALLET_PRIVATE_KEY` mainnet ETH balance. Without it, every mint, recordBank, spendNuke, etc. reverts.
-- [ ] Replace bug-reporting placeholder in TESTING.md.
-- [ ] Confirm `KV_REST_API_URL` + `KV_REST_API_TOKEN` are set in mainnet Vercel env (NOT just testnet).
-- [ ] Confirm `PRIVY_APP_SECRET` is set in mainnet Vercel env.
+### Deferred — design decisions, not blocking
+- [ ] **Score plausibility ceiling review** — Real-time mode allows up to ~163k $BLOK per 30s run (`lib/difficulty.ts:maxPlausibleScore`). Calibrate vs $BLOK economics before any DEX listing or NFT redemption.
+- [ ] **First-bank ceiling shape** — a player can legitimately bank zero for 34s then bank max in one shot. If $BLOK has real value, consider per-bank-elapsed ceilings.
+- [ ] **`getChain()` invalidation on RPC failure** — singleton in `lib/chain.ts` pins routes to a dead provider until cold start. Marginal value on MegaETH; revisit if outages are observed.
+- [ ] **Nuke visual fires before API call resolves** — disconnect-WiFi exploit gives a free nuke. Awaiting the API would add latency; user accepted as is.
+- [ ] **Privy gas sponsorship + Smart Wallets** — sponsorship is enabled in dashboard but doesn't fire for embedded EOA wallets. Would need ERC-4337 Smart Wallets refactor. Not blocking — faucet-drip path is the working approach.
 
 ## Known limitations / debt
 

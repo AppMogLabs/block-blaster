@@ -32,7 +32,13 @@ type ScreenState =
 export function GameView() {
   const router = useRouter();
   const params = useSearchParams();
-  const modeId = Number(params.get("mode") ?? "0") as 0 | 1 | 2 | 3;
+  // Validate before the cast — `?mode=99` would otherwise pass the type
+  // assertion and crash getDifficulty() outside the GameErrorBoundary,
+  // surfacing an unhandled error page instead of falling back to Easy.
+  const modeId = useMemo<0 | 1 | 2 | 3>(() => {
+    const raw = Number(params.get("mode") ?? "0");
+    return raw === 0 || raw === 1 || raw === 2 || raw === 3 ? raw : 0;
+  }, [params]);
   const mode = useMemo(() => getDifficulty(modeId), [modeId]);
   const { walletAddress, login, isAuthenticated } = useAuth();
   const { blockNumber } = useMegaEth();
