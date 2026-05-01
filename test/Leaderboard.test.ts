@@ -33,7 +33,7 @@ describe("Leaderboard", () => {
     const { lb, alice } = await deploy();
     await expect(lb.submitScore(alice.address, 50, 1))
       .to.emit(lb, "NewHighScore")
-      .withArgs(alice.address, 50n, 1);
+      .withArgs(alice.address, 1, 50n);
   });
 
   it("non-owner rejected", async () => {

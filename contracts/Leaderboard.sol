@@ -31,9 +31,16 @@ contract Leaderboard is Ownable {
     /// mode => current populated count (grows to TOP_N then stays)
     mapping(uint8 => uint8) private _filled;
 
-    event NewHighScore(address indexed player, uint256 score, uint8 mode);
+    event NewHighScore(address indexed player, uint8 indexed mode, uint256 score);
+
+    error RenounceDisabled();
 
     constructor(address owner_) Ownable(owner_) {}
+
+    /// @notice Renouncing disabled — would freeze the leaderboard ledger forever.
+    function renounceOwnership() public override onlyOwner {
+        revert RenounceDisabled();
+    }
 
     /**
      * @notice Submit a score. If it lands in the top 100 for `mode`,
@@ -51,7 +58,7 @@ contract Leaderboard is Ownable {
             board[count] = ScoreEntry(player, score, block.timestamp, mode);
             _filled[mode] = count + 1;
             _bubbleUp(board, count);
-            emit NewHighScore(player, score, mode);
+            emit NewHighScore(player, mode, score);
             return;
         }
 
@@ -62,7 +69,7 @@ contract Leaderboard is Ownable {
 
         board[TOP_N - 1] = ScoreEntry(player, score, block.timestamp, mode);
         _bubbleUp(board, TOP_N - 1);
-        emit NewHighScore(player, score, mode);
+        emit NewHighScore(player, mode, score);
     }
 
     /// @notice Returns the top-N entries (descending). Unfilled slots have score=0.
