@@ -133,7 +133,7 @@ describe("Leaderboard — edge cases", () => {
     const { lb, alice } = await deploy();
     await expect(lb.submitScore(alice.address, 250, 2))
       .to.emit(lb, "NewHighScore")
-      .withArgs(alice.address, 250n, 2);
+      .withArgs(alice.address, 2, 250n);
   });
 
   it("timestamp recorded at block.timestamp", async () => {

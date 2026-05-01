@@ -26,7 +26,11 @@ describe("GameRewards", () => {
     await rewards.waitForDeployment();
 
     // Grant GameRewards the mint slot — it needs this to pay wager bonuses.
-    await blok.setMinter(await rewards.getAddress());
+    // 2-step minter handover: propose, wait MINTER_DELAY, accept.
+    await blok.proposeMinter(await rewards.getAddress());
+    await ethers.provider.send("evm_increaseTime", [2 * 24 * 60 * 60 + 1]);
+    await ethers.provider.send("evm_mine", []);
+    await blok.acceptMinter();
 
     // Give the test player a generous starting balance.
     await blok.mint(player.address, 10_000n);
@@ -326,13 +330,17 @@ describe("BlokToken — burn + minter slot", () => {
     expect(await blok.balanceOf(alice.address)).to.equal(950n);
   });
 
-  it("setMinter grants mint rights", async () => {
+  it("proposeMinter+acceptMinter grants mint rights after MINTER_DELAY", async () => {
     const { owner, alice, bob, blok } = await setup();
     await expect(blok.connect(bob).mint(alice.address, 1n)).to.be.revertedWithCustomError(
       blok,
       "BlokUnauthorized"
     );
-    await blok.setMinter(bob.address);
+    // Propose, then jump past the cooldown, then accept.
+    await blok.proposeMinter(bob.address);
+    await ethers.provider.send("evm_increaseTime", [2 * 24 * 60 * 60 + 1]);
+    await ethers.provider.send("evm_mine", []);
+    await blok.acceptMinter();
     await blok.connect(bob).mint(alice.address, 500n);
     expect(await blok.balanceOf(alice.address)).to.equal(1500n);
     // Owner still mints
@@ -340,11 +348,32 @@ describe("BlokToken — burn + minter slot", () => {
     expect(await blok.balanceOf(alice.address)).to.equal(1510n);
   });
 
-  it("setMinter emits MinterUpdated", async () => {
+  it("acceptMinter emits MinterUpdated; proposeMinter emits MinterProposed", async () => {
     const { bob, blok } = await setup();
-    await expect(blok.setMinter(bob.address))
+    await expect(blok.proposeMinter(bob.address)).to.emit(blok, "MinterProposed");
+    await ethers.provider.send("evm_increaseTime", [2 * 24 * 60 * 60 + 1]);
+    await ethers.provider.send("evm_mine", []);
+    // Setup() already accepted the rewards minter, so previous = rewards address.
+    await expect(blok.acceptMinter())
       .to.emit(blok, "MinterUpdated")
-      .withArgs(ethers.ZeroAddress, bob.address);
+      .withArgs((await blok.minter()), bob.address);
+  });
+
+  it("proposeMinter rejects address(0)", async () => {
+    const { blok } = await setup();
+    await expect(blok.proposeMinter(ethers.ZeroAddress)).to.be.revertedWithCustomError(
+      blok,
+      "ZeroMinter"
+    );
+  });
+
+  it("acceptMinter reverts before delay elapses", async () => {
+    const { bob, blok } = await setup();
+    await blok.proposeMinter(bob.address);
+    await expect(blok.acceptMinter()).to.be.revertedWithCustomError(
+      blok,
+      "MinterDelayNotMet"
+    );
   });
 
   it("renounceOwnership reverts (would brick minting)", async () => {

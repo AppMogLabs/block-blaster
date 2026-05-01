@@ -44,6 +44,14 @@ contract GameRewards is Ownable {
     uint256 public constant NUKE_COST = 100;
     /// @notice Cost to instantly refill sweep fuel, burned on activation.
     uint256 public constant SWEEP_RELOAD_COST = 25;
+    /// @notice Hard upper bound on submittable score. Far above any plausible
+    ///         real game (off-chain plausibility cap is ~14.5 pts/block × duration);
+    ///         exists purely as a defense-in-depth cap so a backend bug or
+    ///         compromised key cannot inflate PB to type(uint256).max.
+    uint256 public constant MAX_SCORE = 1_000_000;
+    /// @notice Per-player cooldown (seconds) between any two spend/wager calls.
+    ///         Bounds single-block drain blast radius from a compromised owner key.
+    uint256 public constant SPEND_COOLDOWN = 1;
 
     /// @notice Personal best per player, per mode. 0 = no PB recorded yet.
     mapping(address => mapping(uint8 => uint256)) public personalBest;
@@ -53,20 +61,28 @@ contract GameRewards is Ownable {
     /// @notice Mode the active wager was placed on.
     mapping(address => uint8) public activeWagerMode;
 
+    /// @notice Last spend/wager-affecting timestamp per player. Used by SPEND_COOLDOWN gate.
+    mapping(address => uint256) public lastSpendTime;
+
     event NukeSpent(address indexed player, uint256 amount);
     event SweepReloadSpent(address indexed player, uint256 amount);
     event WagerPlaced(address indexed player, uint8 indexed mode, uint256 amount);
     event WagerWon(address indexed player, uint8 indexed mode, uint256 amount, uint256 score);
     event WagerLost(address indexed player, uint8 indexed mode, uint256 amount, uint256 score);
     event PersonalBestUpdated(address indexed player, uint8 indexed mode, uint256 score);
+    event PersonalBestReset(address indexed player, uint8 indexed mode, uint256 oldPB);
+    event WagerCancelled(address indexed player, uint8 indexed mode, uint256 amount);
 
     error BadMode();
     error BadTier();
+    error BadScore();
     error WagerActive();
     error NoWager();
     error WagerModeMismatch();
     error NoPersonalBest();
     error ZeroPlayer();
+    error SpendTooFast();
+    error RenounceDisabled();
 
     constructor(address owner_, address blok_) Ownable(owner_) {
         require(blok_ != address(0), "blok required");
@@ -82,6 +98,7 @@ contract GameRewards is Ownable {
      */
     function spendNuke(address player) external onlyOwner {
         if (player == address(0)) revert ZeroPlayer();
+        _enforceCooldown(player);
         blok.burnFrom(player, NUKE_COST);
         emit NukeSpent(player, NUKE_COST);
     }
@@ -92,6 +109,7 @@ contract GameRewards is Ownable {
      */
     function spendSweepReload(address player) external onlyOwner {
         if (player == address(0)) revert ZeroPlayer();
+        _enforceCooldown(player);
         blok.burnFrom(player, SWEEP_RELOAD_COST);
         emit SweepReloadSpent(player, SWEEP_RELOAD_COST);
     }
@@ -112,6 +130,7 @@ contract GameRewards is Ownable {
             revert BadTier();
         }
         if (personalBest[player][mode] == 0) revert NoPersonalBest();
+        _enforceCooldown(player);
 
         // Move the wager into this contract's own balance.
         require(
@@ -139,15 +158,20 @@ contract GameRewards is Ownable {
     function recordBank(address player, uint8 mode, uint256 score) external onlyOwner {
         if (player == address(0)) revert ZeroPlayer();
         if (mode >= MODES) revert BadMode();
+        if (score > MAX_SCORE) revert BadScore();
 
         uint256 pb = personalBest[player][mode];
         uint256 wager = activeWagerAmount[player];
 
+        // Mode-match enforced regardless of wager state. If the player has any
+        // active wager, banks on a different mode are rejected outright; if
+        // they have no wager, the bank only writes to the explicitly-specified
+        // mode. This prevents cross-mode PB corruption from a backend mistake
+        // even on no-wager banks (the prior version only checked when wager>0).
+        if (wager > 0 && activeWagerMode[player] != mode) revert WagerModeMismatch();
+
         // Wager settlement first, against the OLD PB.
         if (wager > 0) {
-            uint8 wagerMode = activeWagerMode[player];
-            if (wagerMode != mode) revert WagerModeMismatch();
-
             activeWagerAmount[player] = 0;
             activeWagerMode[player] = 0;
 
@@ -186,10 +210,58 @@ contract GameRewards is Ownable {
         emit WagerLost(player, mode, wager, 0);
     }
 
+    // ─── Owner recovery / safety primitives ─────────────────────────────
+
+    /**
+     * @notice Reset a player's PB to zero on a given mode. For operational
+     *         recovery from a bug-inflated PB (e.g. backend submitted an
+     *         out-of-bounds score before MAX_SCORE was enforced). Without
+     *         this, an inflated PB is permanent and the wager economy on
+     *         that mode is dead for the player.
+     */
+    function resetPersonalBest(address player, uint8 mode) external onlyOwner {
+        if (player == address(0)) revert ZeroPlayer();
+        if (mode >= MODES) revert BadMode();
+        uint256 old = personalBest[player][mode];
+        personalBest[player][mode] = 0;
+        emit PersonalBestReset(player, mode, old);
+    }
+
+    /**
+     * @notice Player-callable escape hatch. Returns the player's escrowed
+     *         wager directly to them. Use when the backend is unresponsive
+     *         (e.g. minter slot misconfigured so recordBank win-path reverts,
+     *         or the backend stops calling at all). The wager amount comes
+     *         from this contract's own BLOK balance — no allowance needed.
+     */
+    function emergencyCancelWager() external {
+        uint256 w = activeWagerAmount[msg.sender];
+        if (w == 0) revert NoWager();
+        uint8 mode = activeWagerMode[msg.sender];
+        activeWagerAmount[msg.sender] = 0;
+        activeWagerMode[msg.sender] = 0;
+        require(blok.transfer(msg.sender, w), "refund failed");
+        emit WagerCancelled(msg.sender, mode, w);
+    }
+
+    /// @notice Renouncing disabled — would brick wager settlement and strand escrow.
+    function renounceOwnership() public override onlyOwner {
+        revert RenounceDisabled();
+    }
+
     // ─── Views ──────────────────────────────────────────────────────────
 
     /// @notice Convenience: returns (wagerAmount, wagerMode). Both zero if none.
     function activeWager(address player) external view returns (uint256, uint8) {
         return (activeWagerAmount[player], activeWagerMode[player]);
+    }
+
+    // ─── Internal ───────────────────────────────────────────────────────
+
+    /// @dev Enforce per-player rate limit. Bounds single-block drain on key compromise.
+    function _enforceCooldown(address player) internal {
+        uint256 last = lastSpendTime[player];
+        if (last != 0 && block.timestamp < last + SPEND_COOLDOWN) revert SpendTooFast();
+        lastSpendTime[player] = block.timestamp;
     }
 }
