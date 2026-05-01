@@ -24,11 +24,21 @@ async function main() {
   const rewardsAddr = await rewards.getAddress();
   console.log(`✔ GameRewards deployed → ${rewardsAddr}`);
 
-  console.log(`Granting mint rights to GameRewards on BLOK…`);
+  // 2-step minter handover (post audit fix). proposeMinter stages the
+  // address; after MINTER_DELAY (2 days) the deployer must run acceptMinter.
+  console.log(`Proposing GameRewards as the BLOK minter…`);
   const blok = await ethers.getContractAt("BlokToken", blokAddr);
-  const tx = await blok.setMinter(rewardsAddr);
+  const tx = await blok.proposeMinter(rewardsAddr);
   await tx.wait();
-  console.log(`✔ setMinter tx: ${tx.hash}`);
+  console.log(`✔ proposeMinter tx: ${tx.hash}`);
+
+  const delay = await blok.MINTER_DELAY();
+  const acceptableAt = new Date(Date.now() + Number(delay) * 1000);
+  console.log(
+    `\n⚠ MINTER NOT YET ACTIVE.` +
+      `\n  Wait ${delay} seconds (~${acceptableAt.toISOString()}), then run:` +
+      `\n    npx hardhat run scripts/acceptGameRewardsMinter.ts --network <net>`
+  );
 
   console.log(`\nSet GAMEREWARDS_CONTRACT_ADDRESS=${rewardsAddr}`);
   console.log(`Set NEXT_PUBLIC_GAMEREWARDS_CONTRACT_ADDRESS=${rewardsAddr}`);
