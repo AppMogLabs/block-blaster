@@ -64,7 +64,7 @@ export function ApproveBanner() {
     } catch (e) {
       const msg = e instanceof Error ? e.message : "approve failed";
       const friendly = /insufficient funds/i.test(msg)
-        ? "wallet needs testnet ETH for gas — visit the MegaETH faucet"
+        ? "wallet needs ETH for gas — visit the MegaETH faucet"
         : /user rejected/i.test(msg)
           ? "approval cancelled"
           : msg;

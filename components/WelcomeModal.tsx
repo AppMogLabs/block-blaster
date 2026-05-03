@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useAuth } from "@/hooks/useAuth";
+import { publicConfig } from "@/lib/config";
 
 const STORAGE_PREFIX = "bb:welcome-seen:";
 
@@ -28,6 +29,13 @@ export function WelcomeModal() {
   }, [isAuthenticated, walletAddress]);
 
   if (!show || !walletAddress) return null;
+
+  const isMainnet = publicConfig.megaethChainId === 4326;
+  const networkLabel = isMainnet ? "MegaETH" : "MegaETH testnet";
+  const tokenNote = isMainnet
+    ? "real $BLOK on MegaETH mainnet."
+    : "testnet tokens — bragging rights for now.";
+  const gasNote = isMainnet ? "MegaETH ETH" : "testnet ETH";
 
   const dismiss = () => {
     window.localStorage.setItem(
@@ -60,22 +68,21 @@ export function WelcomeModal() {
         <div className="space-y-3 text-sm text-moon-white/85 leading-relaxed">
           <p>
             We&apos;ve set up a free game wallet for you on{" "}
-            <span className="mono text-mint">MegaETH testnet</span> — no real
-            money, no setup, no app to download. It&apos;s yours; you can
-            export the keys from the home page anytime.
+            <span className="mono text-mint">{networkLabel}</span> — no setup,
+            no app to download. It&apos;s yours; you can export the keys from
+            the home page anytime.
           </p>
           <p>
-            When you bank points in a run, real{" "}
+            When you bank points in a run,{" "}
             <span className="mono">$BLOK</span> tokens are minted to that
-            wallet. They&apos;re testnet tokens — bragging rights for now.
+            wallet — {tokenNote}
           </p>
           <p>
             Up next: a one-time{" "}
             <span className="mono text-pink">Approve</span> step lets the game
             spend your <span className="mono">$BLOK</span> on in-game features
-            (Nuke, Sweep refill, Wagers). It costs a tiny bit of testnet ETH
-            and we&apos;ve already topped your wallet up. No real money, no
-            recurring approvals.
+            (Nuke, Sweep refill, Wagers). It costs a tiny bit of {gasNote} and
+            we&apos;ve already topped your wallet up. No recurring approvals.
           </p>
         </div>
         <button
