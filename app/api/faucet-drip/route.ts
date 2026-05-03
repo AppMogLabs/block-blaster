@@ -28,11 +28,13 @@ const log = logger("faucet");
  * POST { walletAddress }
  */
 
-// Sized for an embedded-wallet approve() call on MegaETH (base fee 0.001 gwei,
-// ~50k gas → < 1e-7 ETH). 0.0001 leaves ~1000x headroom and cuts mainnet
-// sponsorship cost 10x vs the previous 0.001.
-const DRIP_AMOUNT = "0.0001"; // ETH
-const MIN_BALANCE = "0.00005"; // below this → drip
+// Actual on-chain cost is < 1e-7 ETH (base fee 0.001 gwei × ~50k gas), but
+// Privy's wallet UI quotes a far more conservative gas estimate (~$0.38 USD
+// for an approve() at ETH ≈ $2300, i.e. ~1.7e-4 ETH). The drip must clear
+// that estimate or the embedded wallet refuses the tx, even though the real
+// cost is fractions of a cent.
+const DRIP_AMOUNT = "0.00025"; // ETH (~$0.58 — clears Privy's approve estimate with buffer)
+const MIN_BALANCE = "0.0001"; // below this → re-drip
 
 export async function POST(req: NextRequest) {
   let body;
