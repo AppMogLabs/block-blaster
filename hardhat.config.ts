@@ -36,6 +36,20 @@ const config: HardhatUserConfig = {
     cache: "./cache",
     artifacts: "./artifacts",
   },
+  etherscan: {
+    // Etherscan v2 unified API — single key, chain selected via chainid param.
+    apiKey: process.env.ETHERSCAN_API_KEY ?? "",
+    customChains: [
+      {
+        network: "megaethMainnet",
+        chainId: 4326,
+        urls: {
+          apiURL: "https://api.etherscan.io/v2/api?chainid=4326",
+          browserURL: "https://mega.etherscan.io",
+        },
+      },
+    ],
+  },
 };
 
 export default config;
